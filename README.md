@@ -1,140 +1,138 @@
-<p align="center"><img src="assets/logo.svg" width="96" alt="Dinghy"></p>
+# FLAT-20
 
-# Dinghy
+The Korg MS-20, as firmware for the M-VAVE FM-1: the instrument's circuit, part for part, running on the FM-1's own
+processor. Not affiliated with Korg; no Korg code. Built on [Dinghy](https://github.com/zvenson/dinghy) (GPL-3.0-only;
+its own README is [docs/DINGHY.md](docs/DINGHY.md)), which carries Felucca's platform.
 
-**The smallest firmware for the M-VAVE FM-1 to build your own on.**
+**Status: 0.2.** Runs on an FM-1, and was measured there: in tune over USB audio and at the speaker, every factory
+preset identical to the same firmware run on a computer, 56 % of the audio interrupt's time.
 
-Dinghy plays a sine wave on the keys, and that is all it does. Under it is everything an FM-1 firmware needs
-before it can be any fun: the update path, the USB rescue, MIDI over USB and the TRS jack (with clock), USB audio, the
-keys, knobs and LEDs, the screen, flash storage, and the same again for the M-Vave SMK-37. It all works, so you start
-with the part you actually want to write.
+## What it is
 
-```
-firmware/src/dinghy.c     <- your firmware: ~300 lines, a 4-voice sine. Start here.
-firmware/src/platform.c   <- the plumbing (boot, USB, MIDI, updates, audio ISR, storage). Done; read it, don't fight it.
-firmware/src/store.h      <- where your data lives in flash, per board
-firmware/src/*.c, hal/    <- Felucca's platform, as SLOOP / sloopDX / OberVave carry it; the SMK-37 layer
-```
+The engine (`firmware/src/ms20.h`) is the MS-20's first board set (KLM-127 with two KORG35 filters, KLM-128, KLM-129)
+taken from Korg's service manual: each resistor and capacitor that shapes the sound is in the code under its part
+number, and [docs/MS20-CIRCUIT.md](docs/MS20-CIRCUIT.md) lists them with where each came from. The handful of numbers
+a diagram cannot give (the inside of the KORG35 chip, the curve of an "A" pot) come from recordings of instruments
+and are marked as such.
 
-Dinghy is based on [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita (Hügelton Instruments), with its
-platform as [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) carries it: it keeps that platform and throws away the
-rest. The smallest boat of the family, after the felucca and the sloop.
+What that means for how it plays, because these are the things an "MS-20-style" synthesizer usually gets wrong:
 
-<p align="center"><img src="docs/screen.png" width="240" alt="Dinghy's screen: the name, the note played, a keyboard with the keys that sound"></p>
+- **Pitch is Hz / V.** KBD CV OUT is 1 V at the lowest C and 8 V at the highest; VCO 1 + 2 CV IN and VCO 2 CV IN are
+  linear (twice the volts, twice the hertz; 0 V is silence). Only the two FM knobs, MASTER TUNE and PITCH are
+  exponential. EG1 reaches the VCOs as -5 V at rest: with EG1 / EXT up, a note climbs to its pitch.
+- **Triggers are switch triggers:** +5 V at rest, ground while on. The MG's rectangle in TRIG IN plays the note while
+  it is *low*; the momentary switch is a contact to ground and nothing else.
+- **The filters are KORG35s:** a Sallen-Key pair on unequal capacitors into an amplifier of 58 with two diodes across
+  it. The diodes are in the signal's path, so everything is squashed a little, more with both VCOs up, and a singing
+  filter settles where the diodes let it. The high-pass is 6 dB an octave. The signal itself moves the chip's
+  resistance, which is why the resonance is lopsided.
+- **EG2 reaches the filters less SUSTAIN's voltage.** With SUSTAIN up, CUTOFF is where the filter sits while a key is
+  held, and it is *below* that before and after the note. REV OUT is the same upside down.
+- **The VCA is one transistor:** shut until EG2 is past 0.4 V, then in proportion, a little lopsided, into an
+  amplifier that rolls off at 8.8 kHz. INITIAL GAIN is whichever of it and EG2 is higher, not their sum.
+- **The "sample and hold" follows** its input while its clock is high (or unplugged) and holds while it is low: for
+  steps, narrow the MG's rectangle with WAVE FORM.
+- **The modulation VCA is opened by EG1** unless something is plugged into its CONTROL INPUT, and it is a lamp and a
+  photocell: slow. MG into it and its output into TOTAL is the vibrato that comes in late.
+- **The keyboard** plays the highest key held, and a new key while another is down does not start the envelopes
+  again. PORTAMENTO glides only while a key is down.
+- "Pink" noise falls 6 dB an octave, the triangle has one flattened tip, PW stops at a sliver, the MG runs 0.1 to
+  20 Hz in proportion to its knob and its shape does not change its rate.
 
-> **Status: 0.5.** 0.5 runs on newer FM-1s too: their flash chip, the UC25HQ80 (0xB36014), beside the Puya (0x856014);
-> before, a firmware built on Dinghy saved to RAM only on them. Dinghy's platform runs on the FM-1 in VIBE FM Link
-> (zvenson/vibe-link), tested there on 7.11.2026. 0.3 was tested on the FM-1: the install, MIDI in (pitch exact, 4 voices), USB audio at
-> 44.1 / 48 kHz, the keys, the screen, the octave kept in flash, and back to another firmware through the hub.
-> 0.4 brings OberVave's platform over: the TRS MIDI IN, the clock, blobs and slots, the loader's screen, the SMK-37.
-> That code runs on the device in OberVave (FM-1 and SMK-37); Dinghy 0.4 itself is tested on the host only so far.
+## What differs from an MS-20
 
-## What you get
+- **The filter board is the first one.** Later MS-20s have a different filter (KLM-307, two LM13600s); it is not here.
+- **No drift, no tolerances:** the two VCOs track each other exactly, every part has its printed value, the cutoff
+  does not move with the room's temperature. There is no hum, and only a trace of hiss.
+- **The external signal processor has no jack:** the FM-1 has no audio input, so its SIGNAL IN is a cable from
+  another jack. (Its amplifier is made for a microphone: a patch-panel signal clips it almost at once.)
+- **VCO 1 and VCO 2 are patch outputs** (marked `*` on the screen). The MS-20's panel has none.
+- **The wheel** is the ALGORITHM encoder and stays where it is left; the momentary switch is REC.
+- **PLAY** holds the key down for you; there are 16 presets, 8 cables, MIDI and USB audio.
+- The FM-1 has 27 keys (the MS-20: 37, C3 to C6 at 8'); OCT- / OCT+ move them, MIDI plays any note.
+- Where the service manual's diagram and its specification sheet disagree, the diagram is followed: MASTER TUNE is
+  +-212 cents (sheet: 100), PITCH +-1.1 octaves, HOLD 14 s (20), DELAY 9.4 s (10), EG1's OUT jack 0 to +5 V (the sheet
+  says -5 to 0 V; the panel's own legend says 0 to +5 V).
+- Not measured on an instrument, and said so in the circuit document: how strongly the signal moves the KORG35's
+  cutoff (taken from the device equation), the photocell's speed, the F-V converter's pulse width, and the direction
+  of the headphone feedback loop (three inverting stages by the diagram: it thins and whistles, it does not fatten).
+
+## How it was checked
+
+**The circuit against itself** (`tests/ms20_test.c`, 74 checks, no hardware): pitch to a cent and a half over the
+keyboard and every SCALE, the CV inputs' volts to hertz, each waveform's level, 500 Hz at CUTOFF 5 with PEAK at 10
+(the adjustment procedure), 13 Hz and 15.3 kHz at the stops, the low-pass within 1 dB of two real poles and the
+high-pass's 6 dB, where PEAK starts to sing, every envelope voltage and time against its RC, the trigger inputs, the
+sample and hold, the modulation VCA, the F-V converter, and 400 random patches without a sample out of bounds.
+
+**Recordings of instruments**, each used for one thing the diagram leaves open, not to tune the sound:
+
+| What was open | From | Result |
+| --- | --- | --- |
+| Which C is 1 V | GAK's "Flat Beat" video (MS-20 mini): a 58.3 Hz note at 32' on the first octave's B flat | the lowest C is C3 at 8' |
+| VCO 2's sawtooth level (the diagram shows it 9 dB hotter than VCO 1's) | GAK's "Da Funk" video: two sawtooths, both level knobs alike | fundamentals within 1 dB: both through 100 k |
+| The KORG35's inner resistor ratio (where PEAK starts to sing) | Marc Doty's MS-20 mini filter video: resonant but silent near 7.5 - 8, singing by 8.7 - 9; Da Funk has both PEAKs at 8 | 1.5: it starts at 8.7 |
+| The cutoff's octaves a volt | a vintage MS-20's low-pass singing from stop to stop: 13 Hz to 15.3 kHz (Kick.S) | +-5.27 octaves about 500 Hz |
+| EG1's OUT jack: 0 to +5 V or -5 to 0 V | the panel's legend in the same videos | 0 to +5 V, as the diagram |
+| An "A" pot's curve | none: the usual 15 % at the middle | see below |
+
+*As a check, not a fit:* the Flat Beat patch with the panel as the video shows it (`tools/ms20fit/flatbeat.py`):
+harmonics 1 to 21 from 20 to 300 ms into the note, 77 points. The note's loudness follows the recording within 2 dB
+to 250 ms and 3 dB at 300 (the transistor VCA and the 15 % taper, nothing adjusted). The filter's opening is within what the knobs
+can be read to: the whole comparison is 5.6 dB rms with EG2 / EXT at 10 and 3.9 dB at 9.8, a twentieth of a turn at
+the steep end of an audio-taper pot. The engine before this one matched the same notes to 2.1 dB with its constants
+fitted to them; none is fitted here.
+
+**An FM-1** (`tools/ms20fit/device_check.py`, `tools/fm1_play_rec.py`): all sixteen presets played over USB MIDI and
+recorded over USB audio beside the same firmware on the computer. The steady ones agree to 0.0 cents and half a dB in
+third-octave bands; the others differ only by where their noise and free-running MG happened to be. A4 is 440.000 Hz
+over USB and 440.25 Hz at the speaker (a microphone). The render takes 56 % of its time.
+
+One thing found on the way belongs to the platform, not the synthesizer: a render longer than about 2 ms in one
+piece starved the USB audio ring, and the computer recorded everything 1.9 % flat (33 cents) while the speaker was in
+tune. `platform.c` now renders and hands over a half buffer in eight pieces.
+
+## Playing it
 
 | | |
 | --- | --- |
-| **Updates that always work** | `tools/fm1_install.py`, the web installers and the [FM-1 Firmware Hub](https://thefirmwarehub.com) reach your firmware over USB, so you (and your users) can always install the next build, or go back to the official firmware. |
-| **USB rescue** | Hold **OCT-** while switching on: no sound, only the updater. If your firmware crashes twice at boot, the FM-1 goes there by itself. |
-| **MIDI** | USB in and out (class compliant) and the FM-1's TRS MIDI IN, in one queue: `midi_get()` says where a message came from, `midi_send()`. Clock, start, stop and continue reach your app. |
-| **USB audio** | The FM-1 shows up as a 16-bit stereo audio input (44.1 or 48 kHz): record it into any DAW or phone. Nothing to do. |
-| **Panel** | 27 keys, 14 buttons, 7 encoders, the MASTER knob, the LEDs, by name (`BTN_PLAY`, `ENC_KNOB1`, ...). |
-| **Screen** | 240 x 240, text in two sizes, rectangles, lines, pixels. |
-| **Storage** | `settings_*` (4 KB), 8 blobs of 4 KB (`blob_*`), 8 slots of 16 KB (`slot_*`), each with a CRC, in places no other part of the flash is in reach of. |
-| **Never waits for the screen** | `LCD_IDLE`: your app reads MIDI and the keys while the screen's DMA runs, so a chord never stumbles over a redraw. |
-| **The SMK-37 too** | `./build.sh --board smk37` (Pro, Elite, MKE-P37): the same app on M-Vave's 37-key keyboard, with velocity, outer keys, 16 coloured pads, faders and wheels. [docs/SMK37.md](docs/SMK37.md) |
-| **An update screen** | The update loader draws your name in your colour, a progress bar and what to do, also after an install was cut off (FM-1). |
-| **A crash screen** | A fault shows where it happened (the PC), then the FM-1 restarts. |
-| **Host mode** | The same `dinghy.c` on your computer: the screen as an image, the sound as a WAV, scripted keys, knobs, MIDI (USB and TRS, a clock), SMK-37 pads and wheels. No FM-1 needed to try an idea. |
-| **Tests and CI** | `tests/run_tests.sh`: the host app, the flash maps, the update path, the loader, the installer. A tag `vX.Y` on GitHub builds, tests and releases the packages with a build attestation. |
-| **Checks** | The build fails on what bricks or breaks an FM-1 firmware: a 64-bit division, a call into the chip ROM, too much RAM, a register touched outside `hal/`. |
+| SELECT | the page: VCO 1, VCO 2, MIXER / FM, HIGH PASS, LOW PASS, MG / EG 1, EG 2, MORE, EXT SIGNAL PROC, PATCH PANEL |
+| KNOB 1..4 | the page's four controls, 0.0 to 10.0 as on the panel |
+| HOME, FX, ENV, LFO, EDIT | to the VCOs, the filters, the envelopes, the MG, the patch panel / ESP (press again: the next of the group) |
+| PATCH PANEL | KNOB 1 the cable (1..8), KNOB 2 its output, KNOB 3 its input, KNOB 4 turned left pulls it out. A plug in an input disconnects what is wired to it inside, as on the MS-20 |
+| ALGORITHM | the wheel, -5 .. +5 V (shown at the bottom) |
+| REC | the momentary switch (to ground while held) |
+| PLAY | hold: the key stays down |
+| PRESETS, SAVE | one of 16 presets; SAVE keeps the sound in it (written when the sound stops) |
+| OCT-, OCT+ | the octave |
+| MIDI in (USB, TRS) | notes (48 = the MS-20's lowest C), pitch bend +-2, CC 1 the wheel's upper half, CC 2 the whole wheel (64 = centre), CC 64 the switch, CC 16..51 the knobs in the order of `ms20.h`, program change the preset |
 
-## Build your own
+The presets after INIT each show one of the MS-20's ways: FLAT BEAT and DA FUNK as the videos above set them, SCREAMER
+and HP SQUEAL (the filters at the edge), RING BELL, S&H RANDOM, DELAY VIB (the modulation VCA and EG1), FEEDBACK
+(PHONES into EXT SIGNAL IN), AUTO TRIG (the MG into TRIG IN), KICK (a singing filter, no oscillator), WIND, EG1 SWOOP,
+WHEEL>VCO2 (a VCO off the keyboard, in Hz / V), F-V TRACK (the signal processor playing VCO 2).
 
-From nothing to your own firmware on the FM-1, step by step. Each step works before you go to the next.
+## The panel on a Mac
 
-### 1. Copy it
+`mac/` is a Mac app that shows the FM-1's settings as an MS-20 panel, knobs, cables and all, kept up to date over the
+USB cable, and lets you patch it with the mouse. See [mac/README.md](mac/README.md).
 
-On GitHub: **Use this template** (top right on this page) or fork it, then clone your copy. Rename nothing yet:
-first make sure the unchanged Dinghy builds on your machine.
+## Building
 
-### 2. Set up once
-
-You need Linux on x86-64 (or macOS / Windows with Docker or WSL), Python 3 with Pillow, the JieLi toolchain
-and three files of the JieLi AC79 SDK:
+`docs/DINGHY.md` has the set-up (JieLi toolchain, AC79 SDK, Docker on a Mac). Then:
 
 ```sh
-pip3 install Pillow mido python-rtmidi
-tools/get_toolchain.sh                      # JieLi's clang for the chip, to ~/.jieli/toolchain
-git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 \
-    https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
+./build.sh                                          # build/dinghy.fwsc, identity FM-1_950
+python3 tools/fm1_install.py build/dinghy.fwsc      # onto the FM-1 over USB
+sh tests/run_tests.sh                               # the engine's checks and the platform's, on this computer
+cc -O2 -Ifirmware/src -o build/host/render tests/render.c
+build/host/render out.wav 2 v1wave=pulse lpcut=6 lppeak=7 eg2rev:lpcut @100 on=57 @900 off    # the engine alone: any patch as a WAV
+python3 tools/ms20fit/device_check.py               # an FM-1 on USB against tests/run_host.sh's binary
 ```
 
-On macOS the build runs the toolchain in a `linux/amd64` Docker container by itself (have Docker running).
-`JIELI_TOOLCHAIN` and `AC79_SDK` point elsewhere if your copies live somewhere else.
+The engine is one header: float, no libm, no allocation; the same file runs in the FM-1's audio interrupt (built with
+`-mcpu=r3 -mfprev1` for the chip's FPU; float is used nowhere else) and in the tests. It runs at 88.2 kHz and is
+decimated. The instrument around it is `firmware/src/dinghy.c`.
 
-### 3. Hear it without an FM-1
-
-```sh
-tests/run_host.sh                           # -> build/host/dinghy.wav and screen PNGs
-```
-
-Host mode runs the same `dinghy.c` on your computer: the sound as a WAV, the screen as images. Most ideas can be
-tried here first, in seconds.
-
-### 4. Your first change
-
-Open [firmware/src/dinghy.c](firmware/src/dinghy.c) (~200 lines). The sound is `app_audio()`: it gets an empty
-buffer of stereo frames and adds to it. Make the sine a square:
-
-```c
-s = ((int32_t)ph < 0 ? 8000 : -8000) * amp >> 15;     /* instead of s = (sine(ph) * amp) >> 15; */
-```
-
-Run `tests/run_host.sh` again and listen to `build/host/dinghy.wav`. The screen is drawn in `app_main()`, the keys
-are read there too: change the text, add a knob ([docs/API.md](docs/API.md) has every call).
-
-### 5. Onto the FM-1
-
-```sh
-./build.sh                                       # -> build/dinghy.fwsc (fails on what would brick the FM-1)
-python3 tools/fm1_install.py build/dinghy.fwsc   # over USB; asks before it writes, restarts into your build
-python3 tools/fm1_install.py --info              # what runs on the connected FM-1
-```
-
-That is the whole loop: change, hear it on the host, build, install. Back to another firmware, or to the official
-one, with the [FM-1 Firmware Hub](https://thefirmwarehub.com) in Chrome or Edge: Dinghy (and every copy of it)
-answers the hub's updater like every firmware there. Installing firmware is at your own risk.
-
-### 6. When it goes wrong
-
-- **It crashes:** the screen shows where (the PC), then the FM-1 restarts. Twice at boot and it goes to the
-  USB rescue by itself.
-- **It won't start at all:** hold **OCT-** while switching on: the USB rescue, no sound, only the updater. Install
-  a working build (or another firmware from the hub) from there.
-- **The build refuses:** it checks for a 64-bit division, a call into the chip ROM, too much RAM, a register touched
-  outside `hal/`. [docs/RULES.md](docs/RULES.md) says why each one matters; read it before your first crash.
-
-### 7. Make it yours, release it, get into the hub
-
-Your name and logo, your own package identity (so the FM-1 and the installers tell your firmware from Dinghy),
-a GitHub release with the `.fwsc`, and how to get listed next to the others in the
-[FM-1 Firmware Hub](https://thefirmwarehub.com): **[docs/MAKE-IT-YOURS.md](docs/MAKE-IT-YOURS.md)**.
-
-## Where to go next
-
-- **[docs/API.md](docs/API.md)**: everything `platform.c` gives you, with the panel's ids, the screen calls, the
-  audio contract, MIDI, storage, the flash map, timing, the SMK-37.
-- **[docs/SMK37.md](docs/SMK37.md)**: building and installing for the M-Vave SMK-37.
-- **[docs/MAKE-IT-YOURS.md](docs/MAKE-IT-YOURS.md)**: turn Dinghy into your firmware: the name, the package
-  identity, releases, getting into the FM-1 Firmware Hub.
-- **[docs/RULES.md](docs/RULES.md)**: the chip's rules (no FPU, no libgcc, the audio ISR's budget) and what the build
-  checks for you. Read it before your first crash, not after.
-
-## License
-
-GPL-3.0-only, as Felucca and SLOOP: you may change and share it, and whoever gets your firmware gets its source.
-Details, credits and third-party parts in [LICENSING.md](LICENSING.md).
-
-The platform is Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments, with SLOOP's changes (isod89);
-the SMK-37 layer by M. Geisler (genkigenki); the loader's screen after Skiff (illuminus5). Dinghy (the app, the host
-mode, the docs) by zvenson.
+Recording the FM-1 on a Mac for measurements: use PortAudio (`tools/fm1_play_rec.py`), not `ffmpeg -f avfoundation`,
+which drops chunks of the stream.

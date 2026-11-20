@@ -140,6 +140,18 @@ static int midi_get(uint8_t *st, uint8_t *d1, uint8_t *d2)
     return src;
 }
 static void midi_send(uint32_t st, uint32_t d1, uint32_t d2) { printf("%6u ms  MIDI out %02X %u %u\n", fm1_ms, st, d1, d2); }
+static int host_sysex_full;                     /* (a test can make the queue look full: DINGHY_SYSEX_FULL=1) */
+static int sysex_send(const uint8_t *p, uint32_t n)
+{
+    uint32_t i;
+    if (host_sysex_full)
+        return -1;
+    printf("%6u ms  SysEx out", fm1_ms);
+    for (i = 0; i < n; i++)
+        printf(" %02X", p[i]);
+    printf("\n");
+    return 0;
+}
 
 static void app_audio(int32_t *out, uint32_t n);
 static void app_main(void);
@@ -148,12 +160,16 @@ static void app_main(void);
  * argument) replaces it, a line each: "T keys MASK" (hex or decimal), "T btn ID", "T midi ST D1 D2" (USB),
  * "T trs ST D1 D2" (the TRS jack), "T clock BPM N" (N MIDI clocks at BPM over USB, from T on), "T enc ID N" (encoder
  * ID turned N detents, + = clockwise), "T btndown ID" / "T btnup ID" (a button held, let go), "T end" */
-typedef struct { uint32_t t, keys; int btn; uint8_t st, d1, d2; int8_t enc, encn; uint8_t smk, sa; uint16_t sb; uint8_t src; } host_ev_t;
+typedef struct { uint32_t t, keys; int btn; uint8_t st, d1, d2; int8_t enc, encn; uint8_t smk, sa; uint16_t sb; uint8_t src; uint16_t sx; } host_ev_t;
+/* "T sysex F0 .. F7": a SysEx from the computer (USB), as platform.c hands it to the app (APP_SYSEX) */
+static uint8_t host_sx[256][96];
+static uint8_t host_sx_n[256];
+static uint32_t host_nsx;
 /* SMK-37 builds (BOARD_SMK37) also: "T vel V" (the velocity of the keys pressed from now), "T pad P V" (hardware pad
  * P hit at velocity V, V 0 = let go), "T fader F V" (0..127), "T wheel W RAW" (0 pitch, 1 mod; raw ADC 0..1023),
  * "T xkey K V" (keybed key K 0..36 at V, 0 = let go: the outer keys 0..4, 32..36); any build: "T shot" (the screen
  * at T -> OUT-T.ppm) */
-enum { HS_NONE, HS_VEL, HS_PAD, HS_FADER, HS_WHEEL, HS_XKEY, HS_SHOT };
+enum { HS_NONE, HS_VEL, HS_PAD, HS_FADER, HS_WHEEL, HS_XKEY, HS_SHOT, HS_SYSEX };
 static const host_ev_t SCRIPT0[] = {
     {200, 1u << 7, -1, 0, 0, 0, -1, 0},                         /* C4 */
     {700, 1u << 7 | 1u << 11 | 1u << 14, -1, 0, 0, 0, -1, 0},   /* + E4 G4: a chord */
@@ -192,7 +208,16 @@ static void read_script(const char *path)
         else if (!strcmp(what, "fader")) { sscanf(line, "%*u %*s %u %u", &a, &b); e.smk = HS_FADER; e.sa = (uint8_t)a; e.sb = (uint16_t)b; }
         else if (!strcmp(what, "wheel")) { sscanf(line, "%*u %*s %u %u", &a, &b); e.smk = HS_WHEEL; e.sa = (uint8_t)a; e.sb = (uint16_t)b; }
         else if (!strcmp(what, "xkey")) { sscanf(line, "%*u %*s %u %u", &a, &b); e.smk = HS_XKEY; e.sa = (uint8_t)a; e.sb = (uint16_t)b; }
-        else if (!strcmp(what, "shot")) e.smk = HS_SHOT;   /* (any board: the screen now -> OUT-<ms>.ppm) */
+        else if (!strcmp(what, "shot")) e.smk = HS_SHOT;
+        else if (!strcmp(what, "sysex") && host_nsx < 256u) {   /* the bytes in hex, F0 first and F7 last */
+            char *q = strstr(line, "sysex") + 5;
+            unsigned b2, k = 0;
+            int used;
+            while (sscanf(q, "%x%n", &b2, &used) == 1 && k < sizeof host_sx[0]) { host_sx[host_nsx][k++] = (uint8_t)b2; q += used; }
+            host_sx_n[host_nsx] = (uint8_t)k;
+            e.smk = HS_SYSEX;
+            e.sx = (uint16_t)host_nsx++;
+        }   /* (any board: the screen now -> OUT-<ms>.ppm) */
         else if (!strcmp(what, "midi") || !strcmp(what, "trs")) {
             sscanf(line, "%*u %*s %i %u %u", (int *)&a, &b, &c);
             e.st = (uint8_t)a; e.d1 = (uint8_t)b; e.d2 = (uint8_t)c; e.src = what[0] == 't' ? 2 : 1;
@@ -294,6 +319,13 @@ static void platform_poll(void)                 /* one call = one millisecond */
     while (step < script_n && script[step].t <= fm1_ms) {
         if (script[step].smk == HS_SHOT) {
             write_ppm(fm1_ms);
+        } else if (script[step].smk == HS_SYSEX) {
+#ifdef APP_SYSEX
+            const uint8_t *b = host_sx[script[step].sx];
+            uint32_t n = host_sx_n[script[step].sx];
+            if (n >= 2u && b[0] == 0xF0u && b[n - 1u] == 0xF7u && !APP_SYSEX(b + 1, n - 2u))
+                printf("%6u ms  SysEx in, not the app's\n", fm1_ms);
+#endif
         } else if (script[step].smk) {
 #if BOARD_SMK37
             static uint32_t vel = 100;
@@ -382,6 +414,7 @@ int main(int argc, char **argv)
     if (argc > 1) host_out = argv[1];
     if (argc > 2) read_script(argv[2]);
     if (argc > 3) frame_fps = (uint32_t)atoi(argv[3]);
+    host_sysex_full = getenv("DINGHY_SYSEX_FULL") != 0;
     perf_open();
     app_main();
     return 0;

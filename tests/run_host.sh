@@ -8,9 +8,9 @@ cd "$(dirname "$0")/.."
 mkdir -p build/host
 N=dinghy; D=
 if [ "${BOARD:-fm1}" = smk37 ]; then N=dinghy-smk37; D=-DBOARD_SMK37=1; fi
-cc -O2 -Wall -Wno-unused-function -DDINGHY_HOST $D -DAPP_VER="\"${APP_VER:-dev}\"" -Ifirmware/hal -Ifirmware/src -Ifirmware/gen -o build/host/$N firmware/src/dinghy.c
+cc -O2 -Wall -Wno-unused-function -Wno-initializer-overrides -DDINGHY_HOST $D -DAPP_VER="\"${APP_VER:-dev}\"" -Ifirmware/hal -Ifirmware/src -Ifirmware/gen -o build/host/$N firmware/src/dinghy.c
 build/host/$N build/host/$N ${1:+"$1"}
-python3 - "$N" <<'PY'
+${PYTHON:-python3} - "$N" <<'PY'
 import sys
 from pathlib import Path
 from PIL import Image

@@ -307,6 +307,35 @@ static void midi_send(uint32_t st, uint32_t d1, uint32_t d2)   /* USB out, from 
 {
     midi_out_event((st >> 4) | st << 8 | (d1 & 0x7Fu) << 16 | (d2 & 0x7Fu) << 24);
 }
+/* One SysEx message (F0 .. F7) out over USB, from the main loop only, whole or not at all: never waits. -1 when the
+ * USB is not configured, an update is talking (sx_busy, or one of its replies was cut off), or the queue it shares
+ * with the update code has no room for all of it. (The update code sends from the main loop too, so the two never
+ * interleave inside a message.) */
+static int sysex_send(const uint8_t *p, uint32_t n)
+{
+#if FELUCCA_OTA
+    uint32_t i = 0, w;
+    if (n < 2u || p[0] != 0xF0u || p[n - 1u] != 0xF7u || !*(volatile uint8_t *)&usb.config || sx_busy || sx_open)
+        return -1;
+    if (SXQ - (so_w - so_r) < (n + 2u) / 3u)
+        return -1;
+    w = so_w;
+    while (i < n) {
+        uint32_t k = n - i >= 3u ? 3u : n - i;
+        uint32_t cin = k == 3u && i + 3u < n ? 4u : k == 3u ? 7u : 4u + k;   /* 4 continues; 5/6/7 end */
+        sx_out_q[w % SXQ] = cin | (uint32_t)p[i] << 8 | (k > 1u ? (uint32_t)p[i + 1] << 16 : 0u) |
+                            (k > 2u ? (uint32_t)p[i + 2] << 24 : 0u);
+        w++;
+        i += k;
+    }
+    RING_PUBLISH();
+    so_w = w;                                   /* (the USB poll sees the whole message at once) */
+    return 0;
+#else
+    (void)p; (void)n;
+    return -1;
+#endif
+}
 
 /* ---- the timer: 10 kHz key scan, milliseconds, USB at 2 kHz. It outranks the audio ISR; nested in a
  * render it only scans, counts and feeds the USB audio stream (as sloopDX main.c) */
@@ -375,13 +404,19 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
         for (i = 0; i < HALF_WORDS; i++)
             o[i] = 0;
         UAC_ONLY(uac_render_start());
-        app_audio(o, HALF_FRAMES);
-        for (i = 0; i < HALF_WORDS; i++) {
-            int32_t v = (o[i] * master_q12) >> 12;
-            o[i] = v > 32767 ? 32767 : v < -32767 ? -32767 : v;
+        /* In pieces of 32 frames, each handed to the USB ring as soon as it is there: the ring's band (usb.c) is
+         * measured when a render starts and holds some 2 ms of sound, so a render that takes longer than that in one
+         * piece (FLAT-20's takes 3 ms) lets the ring run dry before its frames arrive, and the computer records the
+         * sound stretched by the frames repeated meanwhile (1.9 % flat, measured). */
+        for (b = 0; b < HALF_FRAMES; b += 32u) {
+            int32_t *q = o + 2u * b;
+            app_audio(q, 32u);
+            for (i = 0; i < 64u; i++) {
+                int32_t v = (q[i] * master_q12) >> 12;
+                q[i] = v > 32767 ? 32767 : v < -32767 ? -32767 : v;
+            }
+            UAC_ONLY(uac_tap(q, 32u));          /* the computer records what the speaker plays */
         }
-        for (b = 0; b < HALF_FRAMES; b += 32u)
-            UAC_ONLY(uac_tap(o + 2u * b, 32u));   /* the computer records what the speaker plays */
         for (i = 0; i < HALF_WORDS; i++)
             o[i] <<= 7;
         fm1_audio_ack_half();
@@ -397,6 +432,14 @@ static void platform_poll(void)
     int32_t a;
     fm1_wdt_feed();
     usb_retry(fm1_ms);
+#ifdef APP_SYSEX
+    {                                           /* the app sees each SysEx first and keeps what is its own */
+        const uint8_t *p;
+        uint32_t n;
+        if (ota_frame_get(&p, &n) && APP_SYSEX(p, n))
+            ota_frame_done();
+    }
+#endif
     ota_service();
     if (usb.ota_req) {
         usb.ota_req = 0;

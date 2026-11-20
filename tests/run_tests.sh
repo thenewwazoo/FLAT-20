@@ -18,6 +18,14 @@ run() { echo "== $1"; shift; "$@" || fail=1; }
 
 [ -f build/dinghy.fwsc ] || { echo "run ./build.sh first"; exit 1; }
 
+${CC:-cc} -O2 -Wall -Ifirmware/src -o "$OUT/ms20_test" tests/ms20_test.c -lm
+run "the engine against the MS-20's circuit (pitch in Hz / V, triggers, filters, envelopes, the patch panel)" "$OUT/ms20_test"
+run "the panel link: what the FM-1 tells a computer (STATE, LIVE, rates, echo safety)" ${PYTHON:-python3} tests/link_test.py
+run "the panel app's lists of knobs and jacks match ms20.h (mac/Sources/FlatLink/Generated.swift)" ${PYTHON:-python3} tools/gen_link_swift.py --check
+if command -v swift >/dev/null 2>&1; then
+    run "the panel app (mac/): decoding the firmware's messages, the model, every jack on the panel" sh -c "cd mac && swift test -q"
+fi
+${CC:-cc} -O2 -Wall -Ifirmware/src -o "$OUT/render" tests/render.c
 run "FM-1 app on the host: the default script plays, screens and sound" sh tests/run_host.sh
 run "SMK-37 app on the host: the default script" env BOARD=smk37 sh tests/run_host.sh
 run "FM-1 MIDI: USB, the TRS jack, a clock, the channel" sh tests/run_host.sh tests/scripts/midi.txt
