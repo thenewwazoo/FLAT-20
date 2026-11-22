@@ -6,7 +6,7 @@ A component-level Korg MS-20 synthesizer firmware for the M-VAVE FM-1, built on 
 
 <p align="center"><img src="docs/screen.png" width="240" alt="FLAT-20's screen: the low-pass filter's page, its four knobs, a scope of what goes in and comes out, the lamps"></p>
 
-**Status: 0.3.** A new screen in the MS-20's panel style: four knobs with their printed scales, a live scope or envelope graph for each page, lamps, a battery gauge and a splash. The keyboard and VCOs now start as a real MS-20 does at power-on, and the VCOs are calibrated as Korg's adjustment procedure calibrates them. 0.2 was tested on hardware: in tune over both USB audio and the built-in speaker, matching the desktop host build across all 16 factory presets, using 56% of the audio ISR budget.
+**Status: 0.3.1.** A new screen in the MS-20's panel style: four knobs with their printed scales, a live scope or envelope graph for each page, lamps, a battery gauge and a splash. The keyboard and VCOs now start as a real MS-20 does at power-on, and the VCOs are calibrated as Korg's adjustment procedure calibrates them. 0.2 was tested on hardware: in tune over both USB audio and the built-in speaker, matching the desktop host build across all 16 factory presets, using 56% of the audio ISR budget.
 
 ## Overview
 
@@ -32,6 +32,7 @@ Key MS-20 behaviors that are faithfully modeled:
 - **No physical audio input.** The FM-1 has no audio input jack, so the External Signal Processor's `SIGNAL IN` is patched from another internal jack. (Because the ESP preamp is designed for a microphone, internal patch-level signals clip it almost immediately.)
 - **Extra VCO patch outputs.** `VCO 1` and `VCO 2` are exposed as patch outputs (marked `*` on screen); the real MS-20 does not have these jacks.
 - **Hardware mapping.** The `ALGORITHM` encoder acts as the mod wheel (and stays where you leave it); `REC` is the momentary switch.
+- **Its own storage.** FLAT-20 keeps its presets and settings in its own part of the FM-1's flash; it does not read other firmwares' projects or samples, and theirs are left alone.
 - **Quality-of-life additions.** `PLAY` acts as a key hold, plus 26 presets, 8 patch cables, MIDI, and USB audio.
 - **Keyboard size.** The FM-1 has 27 keys vs. the MS-20's 37 (C3–C6 at 8'). Use `OCT-` / `OCT+` to shift, or play the full range over MIDI.
 - **Schematic vs. spec sheet discrepancies.** Where the service manual schematic and spec sheet disagree, the firmware follows the schematic: `MASTER TUNE` is ±212 cents (spec says ±100), `PITCH` is ±1.1 octaves, `HOLD` is 14 s (spec: 20 s), `DELAY` is 9.4 s (spec: 10 s), and `EG1 OUT` is 0 to +5 V (spec says -5 to 0 V; the front panel silkscreen agrees with 0 to +5 V).
@@ -132,7 +133,7 @@ These are patches in the spirit of each record, built from what is known of how 
 First set up the JieLi toolchain and AC79 SDK (plus Docker if you are on macOS); see [docs/BUILDING.md](docs/BUILDING.md).
 
 ```sh
-./build.sh                                          # builds build/flat20.fwsc (identity FM-1_950)
+./build.sh                                          # builds build/flat20.fwsc (identity FM-1_200000000)
 python3 tools/fm1_install.py build/flat20.fwsc      # flashes to the FM-1 over USB
 sh tests/run_tests.sh                               # runs engine and platform tests on the host
 

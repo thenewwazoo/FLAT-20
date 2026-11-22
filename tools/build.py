@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Build FLAT-20 (on Dinghy's platform, after Felucca / SLOOP): the app, the update loader and an installable .fwsc package.
 
-  tools/build.py [--release X.Y[-suffix]]
+  tools/build.py [--release X.Y[.Z][-suffix]]
 
 Outputs in build/: flat20.bin (app), loader/ota.bin (update loader),
 flat20.fwsc (package). See docs/BUILDING.md for the toolchain and the SDK.
@@ -48,10 +48,12 @@ SDK_SHA256 = {
     "cfg/eq_cfg_hw.bin": "41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d",
 }
 
-ID_PREFIX = "FM-1_95"               # the package identity: this + the minor version (0: a dev build); FLAT-20 has 95N
+ID_PREFIX = "FM-1_200"              # the package identity: this + the version as MMmmpp (dev builds: 000000). Nine
+                                    # digits on purpose: no firmware on thefirmwarehub.com uses FM-1_200..., and the
+                                    # catch-all patterns some of them answer to (FM-1_\d{3,8}) stop at eight
 SCREEN_NAME = "FLAT-20"              # the update loader's screen (ldr_screen.c): the name and its colour (RGB565)
 SCREEN_COLOUR = 0xE4E0              # FLAT-20's orange, #E69F00 (the screen's OUT trace)
-PRODUCT = ID_PREFIX + "0"
+PRODUCT = ID_PREFIX + "000000"
 VERSION = None                      # APP_VER for release builds
 
 
@@ -278,18 +280,18 @@ def mmio_check():
 def main():
     global PRODUCT, VERSION
     ap = argparse.ArgumentParser()
-    ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_95Y, version string X.Y")
+    ap.add_argument("--release", metavar="X.Y[.Z]", help="release build: identity FM-1_200XXYYZZ, version string X.Y.Z")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
     if os.environ.get("BOARD", "fm1").lower().replace("-", "") != "fm1":
         raise SystemExit("FLAT-20 is for the FM-1 only (the platform's SMK-37 port is not supported)")
     name = "flat20.fwsc"
-    if a.release:                   # one digit each: the identity has room for two (X.Y; a .Z only in the text)
-        m = re.fullmatch(r"(\d)\.(\d)(\.\d)?(-[A-Za-z0-9]+)?", a.release)
+    if a.release:                   # up to two digits each, all three in the identity
+        m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?(-[A-Za-z0-9]+)?", a.release)
         if not m:
-            raise SystemExit(f"--release {a.release}: use X.Y, X.Y.Z or X.Y-suffix, one digit each")
-        PRODUCT = ID_PREFIX + m[2]
-        VERSION = m[1] + "." + m[2] + (m[3] or "")
+            raise SystemExit(f"--release {a.release}: use X.Y, X.Y.Z or X.Y.Z-suffix, up to two digits each")
+        PRODUCT = ID_PREFIX + f"{int(m[1]):02d}{int(m[2]):02d}{int(m[3] or 0):02d}"
+        VERSION = m[1] + "." + m[2] + ("." + m[3] if m[3] else "")
         name = f"flat20-{a.release}.fwsc"
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK

@@ -1,0 +1,9 @@
+{
+  "what": "An MS-20 for the FM-1, modelled part by part from Korg's service manual: two VCOs, the KORG35 high- and low-pass filters, two envelopes, the MG, the ESP and an eight-cable patch panel. Each page shows its knobs and a live scope of the sound.",
+  "author": "Brandon Matthews",
+  "kinds": [
+    "synth"
+  ],
+  "image": "docs/card.png",
+  "color": "#E69F00"
+}
