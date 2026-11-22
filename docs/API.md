@@ -243,5 +243,5 @@ In platform.c (or before `#include "platform.c"` where it says `#ifndef`):
 The app is built with `-Os`. Leave it so: with `-O2` (the unity build puts usb.c in it) the FM-1's USB-MIDI IN babbled
 on the device and the hub dropped the port (OberVave, 2026-10-13; which line -O2 breaks is not known).
 
-In tools/build.py: `ID_PREFIX` (the identity: `FM-1_200` + the version as six digits, `MMmmpp`), `SCREEN_NAME` and `SCREEN_COLOUR`
+In tools/build.py: `PRODUCT` (the identity, `FM-1_1978`: the MS-20's year), `SCREEN_NAME` and `SCREEN_COLOUR`
 (the update loader's screen: "FLAT-20" in its orange, while an install runs or after one was cut off).

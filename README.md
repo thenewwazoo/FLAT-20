@@ -6,7 +6,7 @@ A component-level Korg MS-20 synthesizer firmware for the M-VAVE FM-1, built on 
 
 <p align="center"><img src="docs/screen.png" width="240" alt="FLAT-20's screen: the low-pass filter's page, its four knobs, a scope of what goes in and comes out, the lamps"></p>
 
-**Status: 0.3.1.** A new screen in the MS-20's panel style: four knobs with their printed scales, a live scope or envelope graph for each page, lamps, a battery gauge and a splash. The keyboard and VCOs now start as a real MS-20 does at power-on, and the VCOs are calibrated as Korg's adjustment procedure calibrates them. 0.2 was tested on hardware: in tune over both USB audio and the built-in speaker, matching the desktop host build across all 16 factory presets, using 56% of the audio ISR budget.
+**Status: 0.3.2.** A new screen in the MS-20's panel style: four knobs with their printed scales, a live scope or envelope graph for each page, lamps, a battery gauge and a splash. The keyboard and VCOs now start as a real MS-20 does at power-on, and the VCOs are calibrated as Korg's adjustment procedure calibrates them. 0.2 was tested on hardware: in tune over both USB audio and the built-in speaker, matching the desktop host build across all 16 factory presets, using 56% of the audio ISR budget.
 
 ## Overview
 
@@ -133,7 +133,7 @@ These are patches in the spirit of each record, built from what is known of how 
 First set up the JieLi toolchain and AC79 SDK (plus Docker if you are on macOS); see [docs/BUILDING.md](docs/BUILDING.md).
 
 ```sh
-./build.sh                                          # builds build/flat20.fwsc (identity FM-1_200000000)
+./build.sh                                          # builds build/flat20.fwsc (identity FM-1_1978)
 python3 tools/fm1_install.py build/flat20.fwsc      # flashes to the FM-1 over USB
 sh tests/run_tests.sh                               # runs engine and platform tests on the host
 

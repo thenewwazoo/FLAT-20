@@ -46,9 +46,9 @@ python3 tools/fm1_install.py --info              # what runs on the connected FM
 Back to another firmware, or to the official one, with the [FM-1 Firmware Hub](https://thefirmwarehub.com) in Chrome
 or Edge: FLAT-20 answers the hub's updater like every firmware there. Installing firmware is at your own risk.
 
-`./build.sh --release X.Y.Z` makes a release package, `build/flat20-X.Y.Z.fwsc`, identity `FM-1_200XXYYZZ` (0.3.1:
-`FM-1_200000301`; a dev build is `FM-1_200000000`). The identity is what the FM-1 reports and what
-[The Firmware Hub](https://thefirmwarehub.com) tells firmwares apart by: no other firmware there uses `FM-1_200…`.
+`./build.sh --release X.Y.Z` makes a release package, `build/flat20-X.Y.Z.fwsc`, with the version on the screen. Every
+build's identity is `FM-1_1978`, the MS-20's year: it is what the FM-1 reports and what
+[The Firmware Hub](https://thefirmwarehub.com) tells firmwares apart by, and no other firmware there uses it.
 A tag `vX.Y.Z` on GitHub builds and publishes it (`.github/workflows/release.yml`); the hub picks up a new release
 by itself, and the card's text and picture come from `fmhub.json`.
 
