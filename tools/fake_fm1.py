@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# A stand-in FM-1 for the panel app (mac/) when there is none on the cable: the firmware itself runs on this computer
-# (build/host/dinghy) and its panel-link messages go out, at their own times, through a virtual MIDI port.
-#   fake_fm1.py [SCRIPT] [--loop] [--port NAME]     SCRIPT: a host script (tests/host.c); default: a tour of the presets
+# Virtual FM-1 for testing the macOS panel app (mac/) without hardware.
+# Runs the host firmware build (build/host/flat20) and replays its SysEx output over a virtual MIDI port.
+#   fake_fm1.py [SCRIPT] [--loop] [--port NAME]   (default script cycles through all 16 presets)
 import argparse, os, re, subprocess, sys, tempfile, time
 import mido
 
@@ -31,9 +31,9 @@ def main():
     a.add_argument("--loop", action="store_true")
     a.add_argument("--port", default="FM-1 Midi (simulated)")
     o = a.parse_args()
-    exe = os.path.join(ROOT, "build/host/dinghy")
+    exe = os.path.join(ROOT, "build/host/flat20")
     subprocess.run(["cc", "-O2", "-w", "-DDINGHY_HOST", '-DAPP_VER="dev"', "-I" + ROOT + "/firmware/hal", "-I" + ROOT + "/firmware/src",
-                    "-I" + ROOT + "/firmware/gen", "-o", exe, ROOT + "/firmware/src/dinghy.c"], check=True)
+                    "-I" + ROOT + "/firmware/gen", "-o", exe, ROOT + "/firmware/src/flat20.c"], check=True)
     d = tempfile.mkdtemp()
     script = o.script
     if not script:

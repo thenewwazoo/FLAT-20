@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Listens to every MIDI source on the Mac (the FM-1 is whichever one sends FLAT-20's messages; a keyboard or anything
-// else is ignored) and follows sources coming and going. It sends only to that FM-1, and only what the player asks for
-// (a patch cable), never on its own.
+// Listens to all CoreMIDI sources, tracks hot-plugged devices, and routes FLAT-20 SysEx packets.
+// Only sends outgoing CABLES messages back to the active FM-1 endpoint when requested by the user.
 import CoreMIDI
 import Foundation
 import Synchronization
@@ -11,13 +10,13 @@ final class MIDIListener: Sendable {
     private let client = Mutex<MIDIClientRef>(0)
     private let port = Mutex<MIDIPortRef>(0)
     private let outPort = Mutex<MIDIPortRef>(0)
-    /// the source FLAT-20's messages last came from
+    /// Endpoint that last sent a valid FLAT-20 SysEx message.
     private let flat = Mutex<MIDIEndpointRef>(0)
     private let assemblers = Mutex<[MIDIEndpointRef: SysExAssembler]>([:])
     private let connected = Mutex<Set<MIDIEndpointRef>>([])
     private let deliver: @Sendable ([UInt8], String) -> Void
 
-    /// deliver: every complete SysEx message and the name of the source it came from (on CoreMIDI's thread)
+    /// Called on CoreMIDI's thread with each complete SysEx packet and its source name.
     init(deliver: @escaping @Sendable ([UInt8], String) -> Void) { self.deliver = deliver }
 
     func start() throws {

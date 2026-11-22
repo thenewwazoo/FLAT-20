@@ -1,36 +1,36 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// What the panel shows: the last STATE and LIVE from the FM-1, and the knobs and cables on their way there (a knob
-// turns to its new place over some 80 ms, a cable fades in and out), so a change is seen happening rather than jumping.
+// Observable panel state backed by incoming FM-1 STATE/LIVE packets, with ~80 ms knob interpolation
+// and cable fade transitions.
 import Foundation
 import Observation
 import FlatLink
 
 public enum LinkStatus: Equatable, Sendable {
-    /// nothing heard yet
+    /// No packets received yet.
     case waiting
-    /// heard within the last 2.5 s (the FM-1 sends at least once a second)
+    /// Packet received within the last 2.5 s (FM-1 sends at >= 1 Hz).
     case connected(source: String)
-    /// heard before, not lately
+    /// Previously connected, now timed out.
     case lost(source: String)
-    /// the FM-1 speaks a format this app does not read
+    /// Firmware link version or parameter/jack count mismatch.
     case incompatible(String)
 }
 
 public struct ShownCable: Identifiable, Equatable, Sendable {
-    /// the cable slot (0 ..< 8): a slot keeps its colour
+    /// Cable slot index (0..<8); each slot has a fixed color.
     public let id: Int
     public let cable: Cable
     public var alpha: Double
 }
 
-/// one moment of the panel, for drawing (a plain value: the drawing runs off the main actor)
+/// Snapshot passed to the renderer (value type so drawing can run off the main actor).
 public struct PanelFrame: Sendable {
     public var state: PatchState?
     public var live: LiveState
     public var status: LinkStatus
     public var shown: [Double]
     public var cables: [ShownCable]
-    /// patching: the jack clicked first, where the pointer is, what is under it, a word for the player
+    /// Interactive patching state: first clicked jack, pointer position, hovered target, status notice.
     public var pending: JackID? = nil
     public var pointer: CGPoint? = nil
     public var hover: PanelTarget? = nil

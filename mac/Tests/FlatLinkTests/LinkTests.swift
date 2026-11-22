@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The decoder against what the firmware really sends: Fixtures/host.log is build/host/dinghy's output for
+// The decoder against what the firmware really sends: Fixtures/host.log is build/host/flat20's output for
 // Fixtures/host-script.txt (tools/gen_link_fixture.sh makes both).
 import Foundation
 import Testing

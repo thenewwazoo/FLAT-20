@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# mac/Sources/FlatLink/Generated.swift from firmware/src/ms20.h and ms20_link.h: the panel app's lists of knobs and jacks,
-# in the firmware's order, so the two cannot drift apart.
-#   gen_link_swift.py            write it
-#   gen_link_swift.py --check    exit 1 if the file is not what it would write (tests/run_tests.sh)
+# Generate mac/Sources/FlatLink/Generated.swift from firmware/src/ms20.h and ms20_link.h
+# so Swift enum layouts stay in sync with the firmware.
+#   gen_link_swift.py            regenerate Generated.swift
+#   gen_link_swift.py --check    verify Generated.swift is up to date (used by tests/run_tests.sh)
 import re, sys, os
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 OUT = os.path.join(ROOT, "mac/Sources/FlatLink/Generated.swift")

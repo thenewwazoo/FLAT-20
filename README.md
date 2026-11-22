@@ -1,138 +1,149 @@
+<p align="center"><img src="assets/logo.png" width="256" alt="FLAT-20: circuit-level analog engine"></p>
+
 # FLAT-20
 
-The Korg MS-20, as firmware for the M-VAVE FM-1: the instrument's circuit, part for part, running on the FM-1's own
-processor. Not affiliated with Korg; no Korg code. Built on [Dinghy](https://github.com/zvenson/dinghy) (GPL-3.0-only;
-its own README is [docs/DINGHY.md](docs/DINGHY.md)), which carries Felucca's platform.
+A component-level Korg MS-20 synthesizer firmware for the M-VAVE FM-1, built on [Dinghy](https://github.com/zvenson/dinghy) (GPL-3.0-only; credits in [LICENSING.md](LICENSING.md)). Not affiliated with Korg and contains no Korg code.
 
-**Status: 0.2.** Runs on an FM-1, and was measured there: in tune over USB audio and at the speaker, every factory
-preset identical to the same firmware run on a computer, 56 % of the audio interrupt's time.
+<p align="center"><img src="docs/screen.png" width="240" alt="FLAT-20's screen: the low-pass filter's page, its four knobs, a scope of what goes in and comes out, the lamps"></p>
 
-## What it is
+**Status: 0.3.** A new screen in the MS-20's panel style: four knobs with their printed scales, a live scope or envelope graph for each page, lamps, a battery gauge and a splash. The keyboard and VCOs now start as a real MS-20 does at power-on, and the VCOs are calibrated as Korg's adjustment procedure calibrates them. 0.2 was tested on hardware: in tune over both USB audio and the built-in speaker, matching the desktop host build across all 16 factory presets, using 56% of the audio ISR budget.
 
-The engine (`firmware/src/ms20.h`) is the MS-20's first board set (KLM-127 with two KORG35 filters, KLM-128, KLM-129)
-taken from Korg's service manual: each resistor and capacitor that shapes the sound is in the code under its part
-number, and [docs/MS20-CIRCUIT.md](docs/MS20-CIRCUIT.md) lists them with where each came from. The handful of numbers
-a diagram cannot give (the inside of the KORG35 chip, the curve of an "A" pot) come from recordings of instruments
-and are marked as such.
+## Overview
 
-What that means for how it plays, because these are the things an "MS-20-style" synthesizer usually gets wrong:
+The synth engine (`firmware/src/ms20.h`) models the original MS-20 board set (KLM-127 with dual KORG35 filters, KLM-128, and KLM-129) directly from the Korg service manual schematics. Every sound-shaping resistor and capacitor is referenced by its part designator in the code and documented in [docs/MS20-CIRCUIT.md](docs/MS20-CIRCUIT.md). The few values that cannot be read off a schematic (internal KORG35 transistor ratio, audio-taper pot curve, etc.) are taken from hardware recordings or standard component specs and marked accordingly.
 
-- **Pitch is Hz / V.** KBD CV OUT is 1 V at the lowest C and 8 V at the highest; VCO 1 + 2 CV IN and VCO 2 CV IN are
-  linear (twice the volts, twice the hertz; 0 V is silence). Only the two FM knobs, MASTER TUNE and PITCH are
-  exponential. EG1 reaches the VCOs as -5 V at rest: with EG1 / EXT up, a note climbs to its pitch.
-- **Triggers are switch triggers:** +5 V at rest, ground while on. The MG's rectangle in TRIG IN plays the note while
-  it is *low*; the momentary switch is a contact to ground and nothing else.
-- **The filters are KORG35s:** a Sallen-Key pair on unequal capacitors into an amplifier of 58 with two diodes across
-  it. The diodes are in the signal's path, so everything is squashed a little, more with both VCOs up, and a singing
-  filter settles where the diodes let it. The high-pass is 6 dB an octave. The signal itself moves the chip's
-  resistance, which is why the resonance is lopsided.
-- **EG2 reaches the filters less SUSTAIN's voltage.** With SUSTAIN up, CUTOFF is where the filter sits while a key is
-  held, and it is *below* that before and after the note. REV OUT is the same upside down.
-- **The VCA is one transistor:** shut until EG2 is past 0.4 V, then in proportion, a little lopsided, into an
-  amplifier that rolls off at 8.8 kHz. INITIAL GAIN is whichever of it and EG2 is higher, not their sum.
-- **The "sample and hold" follows** its input while its clock is high (or unplugged) and holds while it is low: for
-  steps, narrow the MG's rectangle with WAVE FORM.
-- **The modulation VCA is opened by EG1** unless something is plugged into its CONTROL INPUT, and it is a lamp and a
-  photocell: slow. MG into it and its output into TOTAL is the vibrato that comes in late.
-- **The keyboard** plays the highest key held, and a new key while another is down does not start the envelopes
-  again. PORTAMENTO glides only while a key is down.
-- "Pink" noise falls 6 dB an octave, the triangle has one flattened tip, PW stops at a sliver, the MG runs 0.1 to
-  20 Hz in proportion to its knob and its shape does not change its rate.
+Key MS-20 behaviors that are faithfully modeled:
 
-## What differs from an MS-20
+- **Hz/V pitch.** KBD CV OUT outputs 1 V at the lowest C and 8 V at the highest. `VCO 1+2 CV IN` and `VCO 2 CV IN` are linear (doubling voltage doubles frequency; 0 V stops the oscillator). Only the two FM knobs, `MASTER TUNE`, and `PITCH` are exponential. EG1 is normalled to the VCOs at -5 V at rest, so raising `EG1 / EXT` makes notes sweep up into pitch.
+- **Switch triggers (S-trigger).** Triggers idle at +5 V and pull to ground when active. Patching the MG rectangle into `TRIG IN` fires while the wave is *low*. The momentary switch is simply a contact to ground.
+- **KORG35 filters.** Each filter is a Sallen-Key pair with unequal capacitors feeding a 58x amplifier with two clipping diodes in the feedback loop. Because the diodes sit directly in the signal path, signals saturate gently (more so with both VCOs turned up), and self-oscillation amplitude is limited by the diodes. The high-pass filter is 6 dB/octave. Signal voltage modulates the KORG35's internal transistor resistance, producing asymmetric resonance.
+- **EG2 filter offset.** EG2 is sent to the filters with the `SUSTAIN` voltage subtracted (`EG2 - SUSTAIN`). With `SUSTAIN` turned up, `CUTOFF` sets the filter frequency while a key is held, and the filter sits *below* that frequency before and after the note. `REV OUT` is the inverse (`SUSTAIN - EG2`).
+- **Single-transistor VCA.** Closed until EG2 exceeds ~0.4 V, then linear with slight asymmetry, feeding an amplifier that rolls off at 8.8 kHz. `INITIAL GAIN` takes `max(INITIAL GAIN, EG2)`, not their sum.
+- **Track-and-hold (labeled "Sample & Hold").** Tracks the input while the clock is high (or unplugged) and holds while the clock is low. For stepped modulation, narrow the MG rectangle with `WAVE FORM`.
+- **Modulation VCA.** Normalled to EG1 unless something is patched into `CONTROL INPUT`. Modeled as an LED + photocell optocoupler, so its response is sluggish. Patching MG through it into `TOTAL` gives delayed vibrato.
+- **Keyboard priority & portamento.** High-note priority, single-trigger (playing a new note while holding another does not retrigger envelopes). `PORTAMENTO` only glides while a key is held.
+- **Power-on and calibration.** Until the first key, `KBD CV OUT` is 0 V (the keyboard's hold capacitor starts empty). A 10 MΩ trickle (R202 / R206) keeps feeding each VCO's integrator; the adjustment procedure's offset trimmer cancels it at 8', so at 8' the VCOs stand still before the first key, and at the other footages they creep (VCO 1 at 32': 0.13 Hz) and the lowest notes sit a few cents sharp (VCO 1 at 32': about 7), within Korg's ±10 cents.
+- **Other quirks.** "Pink" noise is actually a 6 dB/octave low-pass filter, the triangle wave has one flattened peak, pulse width narrows down to a thin sliver (3.5%), and the MG runs from 0.1 to 20 Hz linearly with the knob without waveform changes affecting its rate.
 
-- **The filter board is the first one.** Later MS-20s have a different filter (KLM-307, two LM13600s); it is not here.
-- **No drift, no tolerances:** the two VCOs track each other exactly, every part has its printed value, the cutoff
-  does not move with the room's temperature. There is no hum, and only a trace of hiss.
-- **The external signal processor has no jack:** the FM-1 has no audio input, so its SIGNAL IN is a cable from
-  another jack. (Its amplifier is made for a microphone: a patch-panel signal clips it almost at once.)
-- **VCO 1 and VCO 2 are patch outputs** (marked `*` on the screen). The MS-20's panel has none.
-- **The wheel** is the ALGORITHM encoder and stays where it is left; the momentary switch is REC.
-- **PLAY** holds the key down for you; there are 16 presets, 8 cables, MIDI and USB audio.
-- The FM-1 has 27 keys (the MS-20: 37, C3 to C6 at 8'); OCT- / OCT+ move them, MIDI plays any note.
-- Where the service manual's diagram and its specification sheet disagree, the diagram is followed: MASTER TUNE is
-  +-212 cents (sheet: 100), PITCH +-1.1 octaves, HOLD 14 s (20), DELAY 9.4 s (10), EG1's OUT jack 0 to +5 V (the sheet
-  says -5 to 0 V; the panel's own legend says 0 to +5 V).
-- Not measured on an instrument, and said so in the circuit document: how strongly the signal moves the KORG35's
-  cutoff (taken from the device equation), the photocell's speed, the F-V converter's pulse width, and the direction
-  of the headphone feedback loop (three inverting stages by the diagram: it thins and whistles, it does not fatten).
+## Differences from a real MS-20
 
-## How it was checked
+- **Rev 1 filters only.** Later MS-20s switched to the KLM-307 board (LM13600 OTAs). Only the original KORG35 board is modeled here.
+- **No component drift or tolerances.** Both VCOs track identically, all components have their exact nominal values, and filter cutoff does not drift with temperature. No mains hum, and only a tiny noise floor so filters can self-oscillate.
+- **No physical audio input.** The FM-1 has no audio input jack, so the External Signal Processor's `SIGNAL IN` is patched from another internal jack. (Because the ESP preamp is designed for a microphone, internal patch-level signals clip it almost immediately.)
+- **Extra VCO patch outputs.** `VCO 1` and `VCO 2` are exposed as patch outputs (marked `*` on screen); the real MS-20 does not have these jacks.
+- **Hardware mapping.** The `ALGORITHM` encoder acts as the mod wheel (and stays where you leave it); `REC` is the momentary switch.
+- **Quality-of-life additions.** `PLAY` acts as a key hold, plus 26 presets, 8 patch cables, MIDI, and USB audio.
+- **Keyboard size.** The FM-1 has 27 keys vs. the MS-20's 37 (C3–C6 at 8'). Use `OCT-` / `OCT+` to shift, or play the full range over MIDI.
+- **Schematic vs. spec sheet discrepancies.** Where the service manual schematic and spec sheet disagree, the firmware follows the schematic: `MASTER TUNE` is ±212 cents (spec says ±100), `PITCH` is ±1.1 octaves, `HOLD` is 14 s (spec: 20 s), `DELAY` is 9.4 s (spec: 10 s), and `EG1 OUT` is 0 to +5 V (spec says -5 to 0 V; the front panel silkscreen agrees with 0 to +5 V).
+- **Unmeasured assumptions.** Noted in `docs/MS20-CIRCUIT.md`: the exact strength of signal-induced cutoff modulation in the KORG35 (taken from the transistor equation), the optocoupler response times, and the ESP F-to-V pulse width.
 
-**The circuit against itself** (`tests/ms20_test.c`, 74 checks, no hardware): pitch to a cent and a half over the
-keyboard and every SCALE, the CV inputs' volts to hertz, each waveform's level, 500 Hz at CUTOFF 5 with PEAK at 10
-(the adjustment procedure), 13 Hz and 15.3 kHz at the stops, the low-pass within 1 dB of two real poles and the
-high-pass's 6 dB, where PEAK starts to sing, every envelope voltage and time against its RC, the trigger inputs, the
-sample and hold, the modulation VCA, the F-V converter, and 400 random patches without a sample out of bounds.
+## Verification
 
-**Recordings of instruments**, each used for one thing the diagram leaves open, not to tune the sound:
+### Unit tests (`tests/ms20_test.c`)
 
-| What was open | From | Result |
+87 host-side checks covering:
+- Pitch accuracy within 1.5 cents across the keyboard at 8', and within the adjustment procedure's ±10 cents at the other `SCALE` settings
+- The power-on state: `KBD CV OUT` at 0 V, VCOs standing at 8' and creeping at 32'
+- Linear Hz/V CV input scaling
+- Individual waveform levels
+- Filter calibration: 500 Hz at `CUTOFF` 5 / `PEAK` 10 (per the service manual), 13 Hz to 15.3 kHz across the full range
+- Low-pass slope (within 1 dB of two real poles) and high-pass slope (6 dB/octave)
+- Self-oscillation threshold on `PEAK`
+- Envelope voltages and RC time constants
+- Trigger inputs, track-and-hold, modulation VCA, and ESP F-to-V converter
+- 400 randomized patches checked for NaNs, infinities, and out-of-bounds samples
+
+### Reference recordings
+
+Hardware recordings were used strictly to resolve parameters that aren't in the schematic—not to tune the synth by ear:
+
+| Unknown parameter | Reference | Value used |
 | --- | --- | --- |
-| Which C is 1 V | GAK's "Flat Beat" video (MS-20 mini): a 58.3 Hz note at 32' on the first octave's B flat | the lowest C is C3 at 8' |
-| VCO 2's sawtooth level (the diagram shows it 9 dB hotter than VCO 1's) | GAK's "Da Funk" video: two sawtooths, both level knobs alike | fundamentals within 1 dB: both through 100 k |
-| The KORG35's inner resistor ratio (where PEAK starts to sing) | Marc Doty's MS-20 mini filter video: resonant but silent near 7.5 - 8, singing by 8.7 - 9; Da Funk has both PEAKs at 8 | 1.5: it starts at 8.7 |
-| The cutoff's octaves a volt | a vintage MS-20's low-pass singing from stop to stop: 13 Hz to 15.3 kHz (Kick.S) | +-5.27 octaves about 500 Hz |
-| EG1's OUT jack: 0 to +5 V or -5 to 0 V | the panel's legend in the same videos | 0 to +5 V, as the diagram |
-| An "A" pot's curve | none: the usual 15 % at the middle | see below |
+| Which C equals 1 V | GAK "Flat Beat" video (MS-20 mini): 58.3 Hz on lowest Bb at 32' | Lowest C is C3 at 8' (MIDI 48) |
+| VCO 2 sawtooth level (schematic omits a series resistor, making it 9 dB hotter than VCO 1) | GAK "Da Funk" video: two sawtooths at equal mixer settings have fundamentals within 1 dB | Matched to VCO 1 (100 kΩ series) |
+| Internal KORG35 resistor ratio (sets `PEAK` self-oscillation point) | Marc Doty MS-20 mini filter demo (resonant at 7.5–8, self-oscillating by 8.7–9) + Da Funk (both `PEAK`s at 8, no oscillation) | Ratio 1.5 (oscillates at ~8.7) |
+| Filter cutoff octaves/volt | Vintage MS-20 LP self-oscillation sweep: 13 Hz to 15.3 kHz (Kick.S) | ±5.27 octaves around 500 Hz |
+| `EG1 OUT` polarity (0..+5 V vs -5..0 V) | Front panel silkscreen in the videos above | 0 to +5 V (matches schematic) |
+| Audio-taper ("A") pot curve | Standard 15% midpoint taper | Exponential (see below) |
 
-*As a check, not a fit:* the Flat Beat patch with the panel as the video shows it (`tools/ms20fit/flatbeat.py`):
-harmonics 1 to 21 from 20 to 300 ms into the note, 77 points. The note's loudness follows the recording within 2 dB
-to 250 ms and 3 dB at 300 (the transistor VCA and the 15 % taper, nothing adjusted). The filter's opening is within what the knobs
-can be read to: the whole comparison is 5.6 dB rms with EG2 / EXT at 10 and 3.9 dB at 9.8, a twentieth of a turn at
-the steep end of an audio-taper pot. The engine before this one matched the same notes to 2.1 dB with its constants
-fitted to them; none is fitted here.
+**Sanity check (not fitted):** Comparing the Flat Beat patch directly against the GAK video (`tools/ms20fit/flatbeat.py`, harmonics 1–21 from 20 ms to 300 ms, 77 points), overall amplitude matches within 2 dB up to 250 ms and 3 dB at 300 ms using the standard transistor VCA and 15% pot taper with zero fitted constants. Total RMS error across the filter sweep is 5.6 dB with `EG2 / EXT` at 10, and 3.9 dB at 9.8 (1/20th of a turn on the steep end of an audio-taper pot).
 
-**An FM-1** (`tools/ms20fit/device_check.py`, `tools/fm1_play_rec.py`): all sixteen presets played over USB MIDI and
-recorded over USB audio beside the same firmware on the computer. The steady ones agree to 0.0 cents and half a dB in
-third-octave bands; the others differ only by where their noise and free-running MG happened to be. A4 is 440.000 Hz
-over USB and 440.25 Hz at the speaker (a microphone). The render takes 56 % of its time.
+### Hardware validation (`tools/ms20fit/device_check.py`, `tools/fm1_play_rec.py`)
 
-One thing found on the way belongs to the platform, not the synthesizer: a render longer than about 2 ms in one
-piece starved the USB audio ring, and the computer recorded everything 1.9 % flat (33 cents) while the speaker was in
-tune. `platform.c` now renders and hands over a half buffer in eight pieces.
+All 16 factory presets were triggered over USB MIDI on a real FM-1, recorded over USB audio, and compared against the desktop host build:
+- Deterministic patches match to 0.0 cents and within 0.5 dB across 1/3-octave bands.
+- Patches using noise or the free-running MG differ only in phase/random state.
+- A4 measures 440.000 Hz over USB audio and 440.25 Hz at the speaker (via microphone).
+- Audio rendering takes 56% of the ISR time budget.
 
-## Playing it
+*Platform note:* Rendering more than ~2 ms in a single uninterrupted block starved the USB audio ring buffer, causing USB recordings to run 1.9% flat (33 cents) even while the speaker was in tune. `platform.c` now renders and submits each half-buffer in 8 chunks to prevent this.
 
-| | |
+## Controls
+
+| Control | Function |
 | --- | --- |
-| SELECT | the page: VCO 1, VCO 2, MIXER / FM, HIGH PASS, LOW PASS, MG / EG 1, EG 2, MORE, EXT SIGNAL PROC, PATCH PANEL |
-| KNOB 1..4 | the page's four controls, 0.0 to 10.0 as on the panel |
-| HOME, FX, ENV, LFO, EDIT | to the VCOs, the filters, the envelopes, the MG, the patch panel / ESP (press again: the next of the group) |
-| PATCH PANEL | KNOB 1 the cable (1..8), KNOB 2 its output, KNOB 3 its input, KNOB 4 turned left pulls it out. A plug in an input disconnects what is wired to it inside, as on the MS-20 |
-| ALGORITHM | the wheel, -5 .. +5 V (shown at the bottom) |
-| REC | the momentary switch (to ground while held) |
-| PLAY | hold: the key stays down |
-| PRESETS, SAVE | one of 16 presets; SAVE keeps the sound in it (written when the sound stops) |
-| OCT-, OCT+ | the octave |
-| MIDI in (USB, TRS) | notes (48 = the MS-20's lowest C), pitch bend +-2, CC 1 the wheel's upper half, CC 2 the whole wheel (64 = centre), CC 64 the switch, CC 16..51 the knobs in the order of `ms20.h`, program change the preset |
+| `SELECT` | Switch parameter page: VCO 1, VCO 2, MIXER / FM, HIGH PASS, LOW PASS, MG / EG 1, EG 2, MORE, EXT SIGNAL PROC, PATCH PANEL |
+| `KNOB 1`–`4` | Adjust the four parameters on the current page (0.0 to 10.0, matching the MS-20 panel) |
+| `HOME`, `FX`, `ENV`, `LFO`, `EDIT` | Jump directly to VCOs, filters, envelopes, MG, or patch panel / ESP (press again to cycle within the group) |
+| `PATCH PANEL` page | `KNOB 1`: cable slot (1–8); `KNOB 2`: source jack; `KNOB 3`: destination jack; `KNOB 4`: turn left to unplug. Plugging into an input breaks its normalled internal connection, just like on the hardware. |
+| `ALGORITHM` | Mod wheel (-5 V to +5 V, shown at the bottom right of the screen) |
+| `REC` | Momentary switch (shorts to ground while held) |
+| `PLAY` | Hold (latches the current key) |
+| `PRESETS`, `SAVE` | Select one of 26 presets; `SAVE` writes to flash once audio goes silent |
+| `OCT-`, `OCT+` | Shift keyboard octave |
+| MIDI IN (USB & TRS) | Notes (MIDI 48 = lowest C), pitch bend (±2 semitones), CC 1 = upper half of wheel, CC 2 = full wheel (64 = center), CC 64 = momentary switch, CC 16–51 = all panel knobs in `ms20.h` order, Program Change = preset select |
 
-The presets after INIT each show one of the MS-20's ways: FLAT BEAT and DA FUNK as the videos above set them, SCREAMER
-and HP SQUEAL (the filters at the edge), RING BELL, S&H RANDOM, DELAY VIB (the modulation VCA and EG1), FEEDBACK
-(PHONES into EXT SIGNAL IN), AUTO TRIG (the MG into TRIG IN), KICK (a singing filter, no oscillator), WIND, EG1 SWOOP,
-WHEEL>VCO2 (a VCO off the keyboard, in Hz / V), F-V TRACK (the signal processor playing VCO 2).
+### The screen
 
-## The panel on a Mac
+Each page is a strip of the MS-20's panel: its section titles, four knobs with their printed scales (the FM-1's four knobs, left to right) and the exact value under each. Ten dots at the top show the page. Below the knobs, a graph of what the page does:
 
-`mac/` is a Mac app that shows the FM-1's settings as an MS-20 panel, knobs, cables and all, kept up to date over the
-USB cable, and lets you patch it with the mouse. See [mac/README.md](mac/README.md).
+- **VCO 1, VCO 2, mixer, high pass, low pass, ESP:** a live scope of that signal from inside the engine, held still by the oscillator it comes from, with its pitch. The filter pages show what goes in (blue, `IN`) and what comes out (orange, `OUT`), so `CUTOFF` and `PEAK` can be watched at work.
+- **MG / EG 1, EG 2, MORE:** the MG's waveforms and the envelopes' shapes, worked out from the knobs with the circuit's own resistors and capacitors, to scale.
 
-## Building
+Along the bottom: the MS-20's lamps (MG, TRIG, ESP, PEAK) with HOLD and EDIT, the octave and the wheel; the battery sits top right. The preset's name shows over the graph for a moment when it changes. The patch panel's page lists the eight cables in the colours the Mac app gives them.
 
-`docs/DINGHY.md` has the set-up (JieLi toolchain, AC79 SDK, Docker on a Mac). Then:
+### Factory presets
+
+**Technique & reference presets (01–16):** `INIT`, `FLAT BEAT` and `DA FUNK` (matching the reference videos), `SCREAMER` and `HP SQUEAL` (filter self-oscillation), `RING BELL`, `S&H RANDOM`, `DELAY VIB` (modulation VCA + EG1), `FEEDBACK` (`PHONES` into `EXT SIGNAL IN`), `AUTO TRIG` (MG into `TRIG IN`), `KICK` (self-oscillating filter, no VCOs), `WIND`, `EG1 SWOOP`, `WHEEL>VCO2` (VCO detached from keyboard, Hz/V), `F-V TRACK` (ESP driving VCO 2), and `FLAT ALEX` (a 32' pulse bass with both filters low; `MG WAVE FORM` is the performance control: 10 for the ramp's "wub", 0 for the sawtooth's snap).
+
+**Classic MS-20 tracks (17–26):**
+
+| # | Name | Track / artist | Patch character |
+| --- | --- | --- | --- |
+| 17 | `FADE TO GRY` | Visage – *Fade to Grey* (1980) | Punchy resonant saw + square synth-pop bass |
+| 18 | `LEATHERETTE` | The Normal – *Warm Leatherette* (1978) | Stark, snappy minimal-wave pulse bass |
+| 19 | `FAD GADGET` | Fad Gadget – *Collapsing New People* (1984) | Metallic ring-mod industrial bass / lead |
+| 20 | `JARRE SWEEP` | Jean-Michel Jarre – *Equinoxe* / *Magnetic Fields* (1978–81) | Dual-filter cosmic lead (EG1 → HPF, MG-swept LPF) |
+| 21 | `DIDGERIDOO` | Aphex Twin – *Didgeridoo* (1992) | Twin-formant resonant MG-modulated acid drone / bass |
+| 22 | `STEREOLAB` | Stereolab – *French Disko* (1993) | Nasal motorik pulse organ / lead |
+| 23 | `SOUR TIMES` | Portishead – *Sour Times* (1994) | Theremin-like triangle lead with delayed vibrato (MG → MVCA → TOTAL) |
+| 24 | `VOODOO PPL` | The Prodigy – *Voodoo People* (1994) | Screaming dual-KORG35 rave acid lead |
+| 25 | `SEXY BOY` | Air – *Sexy Boy* (1998) | Fuzzy, detuned *Moon Safari* MS-20 riff |
+| 26 | `STRICT MCH` | Goldfrapp – *Strict Machine* (2003) | Driving electroclash sub-saw + pulse bass |
+
+These are patches in the spirit of each record, built from what is known of how the MS-20 was used on it; they are not samples and make no claim to be the exact settings.
+
+## macOS companion app
+
+`mac/` contains a native macOS app that displays the FM-1's live state as a full MS-20 front panel over USB MIDI, including knobs, patch cables, LEDs, and active keys, and lets you patch cables with the mouse. See [mac/README.md](mac/README.md).
+
+## Building and testing
+
+First set up the JieLi toolchain and AC79 SDK (plus Docker if you are on macOS); see [docs/BUILDING.md](docs/BUILDING.md).
 
 ```sh
-./build.sh                                          # build/dinghy.fwsc, identity FM-1_950
-python3 tools/fm1_install.py build/dinghy.fwsc      # onto the FM-1 over USB
-sh tests/run_tests.sh                               # the engine's checks and the platform's, on this computer
+./build.sh                                          # builds build/flat20.fwsc (identity FM-1_950)
+python3 tools/fm1_install.py build/flat20.fwsc      # flashes to the FM-1 over USB
+sh tests/run_tests.sh                               # runs engine and platform tests on the host
+
+# Render any patch directly to a WAV file on the host
 cc -O2 -Ifirmware/src -o build/host/render tests/render.c
-build/host/render out.wav 2 v1wave=pulse lpcut=6 lppeak=7 eg2rev:lpcut @100 on=57 @900 off    # the engine alone: any patch as a WAV
-python3 tools/ms20fit/device_check.py               # an FM-1 on USB against tests/run_host.sh's binary
+build/host/render out.wav 2 v1wave=pulse lpcut=6 lppeak=7 eg2rev:lpcut @100 on=57 @900 off
+
+# Compare a USB-connected FM-1 against the host build
+python3 tools/ms20fit/device_check.py
 ```
 
-The engine is one header: float, no libm, no allocation; the same file runs in the FM-1's audio interrupt (built with
-`-mcpu=r3 -mfprev1` for the chip's FPU; float is used nowhere else) and in the tests. It runs at 88.2 kHz and is
-decimated. The instrument around it is `firmware/src/dinghy.c`.
+The synth engine is a single self-contained header (`firmware/src/ms20.h`) using single-precision `float`, with no `libm` and no dynamic allocation. The exact same file runs in the FM-1 audio ISR (compiled with `-mcpu=r3 -mfprev1` for the chip's hardware FPU; float is not used anywhere else in the firmware) and in the host test suite. Internally it runs at 88.2 kHz (2x oversampled) and decimates to 44.1 kHz. The UI and hardware glue live in `firmware/src/flat20.c`.
 
-Recording the FM-1 on a Mac for measurements: use PortAudio (`tools/fm1_play_rec.py`), not `ffmpeg -f avfoundation`,
-which drops chunks of the stream.
+*Tip for macOS audio measurements:* Record the FM-1 using PortAudio (`tools/fm1_play_rec.py`), not `ffmpeg -f avfoundation`, which drops audio frames.

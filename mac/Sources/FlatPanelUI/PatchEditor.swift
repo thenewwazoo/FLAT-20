@@ -1,21 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Patching with the mouse, as rules on the eight cable slots (no drawing, no MIDI: the panel and the app do those).
-//   - Click a jack, then another: a cable between them. Any two jacks: the FM-1 wires them as the panel would be wired
-//     (an output into an input as usual; two inputs or two outputs do what they would do on the instrument).
-//   - The first click on a jack that has a cable pulls that cable out; the second click then plugs the new one in.
-//   - The second click on a jack that has a cable pulls that one out too, before the new one goes in.
-//   - Click a cable: it is gone, both ends.
-//   - Option-click a jack: a dummy plug (a cable to nothing), which breaks the jack's internal connection and gives it
-//     nothing instead; Option-click a jack with a plug in it: that cable comes out.
-//   - The same jack twice, or Esc: nothing more happens (a cable pulled by the first click stays out, as a plug pulled
-//     and put down would).
-// One plug a jack, as on the MS-20's panel.
+// Pure state machine for mouse patching across the 8 cable slots (no UI or MIDI).
+// Rules (one plug per jack, matching hardware):
+//   - Click jack A then jack B: connect A and B (any jack types allowed; FM-1 solves the circuit).
+//   - Clicking an occupied jack unplugs its existing cable first.
+//   - Clicking a cable unplugs both ends.
+//   - Option-click an empty jack: insert a dummy plug (breaks internal normal). Option-click an occupied jack: unplug.
+//   - Clicking the same jack twice or pressing Esc cancels (any cable already unplugged stays unplugged).
 import FlatLink
 
 public struct PatchEditor: Equatable, Sendable {
-    /// the eight slots, as the FM-1 has them
+    /// Eight cable slots matching the FM-1's patch table.
     public var cables: [Cable?]
-    /// the jack clicked first, waiting for the second click
+    /// First clicked jack awaiting a second click.
     public var pending: JackID?
 
     public init(cables: [Cable?], pending: JackID? = nil) {
@@ -24,15 +20,15 @@ public struct PatchEditor: Equatable, Sendable {
     }
 
     public enum Outcome: Equatable, Sendable {
-        /// the cables changed: send them
+        /// Cable table changed; send CABLES SysEx.
         case changed
-        /// nothing to send (a first click on a free jack, a cancel)
+        /// No cable table change (e.g., first click on empty jack or cancel).
         case unchanged
-        /// not allowed: why, for the screen
+        /// Action rejected, with reason to display.
         case refused(String)
     }
 
-    /// pulls the cable plugged into j, if any; true if there was one
+    /// Unplugs any cable connected to `j`; returns true if one was removed.
     mutating func pull(_ j: JackID) -> Bool {
         var any = false
         for i in cables.indices where cables[i]?.touches(j) == true {

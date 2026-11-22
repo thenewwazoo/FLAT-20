@@ -1,7 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
-# FLAT-20 Panel.app (signed for this Mac only), from the Swift package beside this script.
-#   mac/build.sh            -> mac/build/FLAT-20 Panel.app
+# Build and ad-hoc sign FLAT-20 Panel.app into mac/build/FLAT-20 Panel.app.
 set -e
 cd "$(dirname "$0")"
 python3 ../tools/gen_link_swift.py --check >/dev/null || { echo "build.sh: Generated.swift is out of date: run tools/gen_link_swift.py"; exit 1; }

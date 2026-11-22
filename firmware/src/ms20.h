@@ -1,29 +1,23 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* The sound engine: the Korg MS-20 (1978, the first board set: KLM-127 with two KORG35 filters, KLM-128, KLM-129), block
- * for block from Korg's service manual. Every number below is a part of that circuit diagram or a level off its block
- * diagram, unless its comment says otherwise; docs/MS20-CIRCUIT.md lists them with their part numbers, and says which
- * few come from recordings of instruments instead.
+/* Korg MS-20 synth engine (1978 Rev 1 board set: KLM-127 with dual KORG35 filters, KLM-128, KLM-129).
+ * Modeled from Korg's service manual schematics; see docs/MS20-CIRCUIT.md for part numbers and sources.
  *
- * What the circuit is, in short (and what an engine that is merely "after the MS-20" gets wrong):
- *   - Pitch is Hz / V. The keyboard gives 1 V at its lowest C and 8 V at its highest; a VCO's current is that voltage
- *     through its SCALE resistor. Only the modulation (the two FM knobs, MASTER TUNE, VCO 2's PITCH) is exponential:
- *     it multiplies that current in a transistor pair (18 mV an octave).
- *   - Triggers are switch triggers: +5 V at rest, ground while on. An input is "on" below about 2.2 V.
- *   - The filters are two KORG35s: a Sallen-Key pair of unequal capacitors (3300 p and 1000 p) between two transistors
- *     run as resistors, into an amplifier of 58 with two diodes across its feedback resistor. The diodes are in the
- *     forward path: everything that goes through the filter is squashed, not only the resonance. PEAK feeds the
- *     amplifier's output back through the larger capacitor. The high-pass is the same circuit with the signal entering
- *     at the smaller capacitor's ground end, which makes it 6 dB an octave. The signal enters at a few millivolts, and
- *     at those levels it moves the transistors' resistance itself (the KORG35's lopsided resonance).
- *   - The VCA is one transistor used as a switch whose conductance follows its base current, into a current-to-voltage
- *     amplifier with an 8.8 kHz roll-off. Nothing flows until EG2 is past the transistor's base voltage; INITIAL GAIN is
- *     diode-ORed with EG2, not added.
- *   - EG1 reaches the VCOs as -5 V at rest rising to 0 V (its jack: 0 V to +5 V); it is also what opens the modulation VCA, which is a lamp and a photocell and
- *     therefore slow. The "sample and hold" follows its input while its clock is high and holds while it is low.
+ * Key architectural notes:
+ *   - Pitch is Hz/V: 1 V at lowest C, 8 V at highest. VCO current is linear with CV via the SCALE resistors.
+ *     Only modulation (FM knobs, MASTER TUNE, VCO 2 PITCH) is exponential (18 mV/oct).
+ *   - Triggers are switch triggers (S-trig): +5 V idle, 0 V active (threshold ~2.2 V).
+ *   - Dual KORG35 filters: Sallen-Key pair (3300 pF / 1000 pF) with transistor-resistors into a 58x amp
+ *     with antiparallel feedback diodes. Diodes sit in the forward signal path, clipping both signal and
+ *     resonance. High-pass injects at the 1000 pF ground end (6 dB/oct). Input signal voltage modulates
+ *     transistor conductance, producing asymmetric resonance.
+ *   - VCA is a single series transistor into an I-to-V amp with an 8.8 kHz roll-off. Closed below ~0.4 V EG2;
+ *     INITIAL GAIN is diode-ORed with EG2 (max, not sum).
+ *   - EG1 normalled to VCOs is -5..0 V (OUT jack is 0..+5 V) and opens the optocoupler modulation VCA.
+ *     "Sample & Hold" is a track-and-hold (tracks while clock is high, holds while low).
  *
- * The whole voice runs at twice the output rate (88.2 kHz) and is decimated by a half-band filter.
- * Plain C, single-precision float, no libm, no allocation: the same file runs in the FM-1's audio interrupt and in the
- * host tests (tests/ms20_test.c). Float is used only here, never in the main loop. No Korg code. */
+ * Runs internally at 88.2 kHz (2x oversampled) and decimates to 44.1 kHz via half-band FIR.
+ * Plain C, single-precision float, no libm, no allocation. Shared between the FM-1 audio ISR and host tests
+ * (tests/ms20_test.c). Float is used only here, never in the main loop. No Korg code. */
 #ifndef MS20_H
 #define MS20_H
 #include <stdint.h>
@@ -47,29 +41,26 @@ enum {
     MS_NPARAM
 };
 
-/* the patch panel's outputs, in volts as the MS-20 gives them. VCO 1 / VCO 2 are not jacks on an MS-20 (their place is
- * last, and the panel marks them). */
+/* Patch panel outputs (in MS-20 volts). VCO 1 and VCO 2 don't exist on real hardware and are placed last. */
 enum {
     SRC_NONE, SRC_KBD_CV, SRC_KBD_TRIG, SRC_MG_TRI, SRC_MG_RECT, SRC_EG1, SRC_EG1_REV, SRC_EG2_REV, SRC_SH, SRC_MVCA,
     SRC_WHITE, SRC_PINK, SRC_WHEEL, SRC_BUTTON, SRC_SIGNAL, SRC_PHONES, SRC_ESP_AMP, SRC_ESP_BPF, SRC_ESP_FV,
     SRC_ESP_ENV, SRC_ESP_TRIG, SRC_VCO1, SRC_VCO2, MS_NSRC
 };
-/* the inputs. A plug in an input disconnects what is wired to it inside (its normal), whatever is at the cable's other end. */
+/* Patch panel inputs. Plugging into an input breaks its internal normal regardless of the other end. */
 enum {
     DST_NONE, DST_TOTAL, DST_FREQ, DST_VCO_CV, DST_VCO2_CV, DST_EXT_IN, DST_HP_CUT, DST_LP_CUT, DST_GAIN, DST_TRIG,
     DST_EG1_TRIG, DST_SH_IN, DST_SH_CLOCK, DST_MVCA_IN, DST_MVCA_CTL, DST_ESP_IN, MS_NDST
 };
 
-/* The jacks, outputs and inputs in one numbering, since a cable joins any two: 0 = nothing (a cable's loose end, or no
- * cable), then the outputs (SRC_*), then the inputs (DST_*). */
+/* Unified jack numbering (cables can connect any two jacks): 0 = unconnected, 1..NSRC-1 = outputs, then inputs. */
 #define MS_JACK_OUT(s) ((uint8_t)(s))
 #define MS_JACK_IN(d) ((uint8_t)(MS_NSRC - 1 + (d)))
 #define MS_NJACK (MS_NSRC + MS_NDST - 1)
 
 typedef struct {
     uint8_t p[MS_NPARAM];
-    uint8_t cable[MS_NCABLE][2];                    /* the two jacks a cable joins (MS_JACK_*); 0, 0 = no cable; one 0 = a plug
-                                                       whose cable leads nowhere (a dummy plug) */
+    uint8_t cable[MS_NCABLE][2];                    /* jack pairs (MS_JACK_*); {0,0} = empty, one 0 = dummy plug */
     char name[12];
 } ms20_patch_t;                                     /* 64 bytes */
 
@@ -82,6 +73,8 @@ typedef struct {                                    /* what the player does (the
 
 typedef struct { float s1, s2, x, va, vb; } ms20_k35_t;
 
+#define MS_SCOPE_N 1024u
+enum { MS_SCOPE_MIX = MS_NSRC, MS_SCOPE_HP, MS_SCOPE_LP };
 typedef struct {
     uint32_t ph1, ph2, rng;
     float cv, sv[MS_NSRC];                          /* the keyboard's voltage after PORTAMENTO; the outputs' volts, last sample */
@@ -96,6 +89,16 @@ typedef struct {
     float esp_c, esp_h1, esp_h2, esp_l[4], esp_env, esp_f1, esp_f2, esp_t, esp_pk;   /* esp_pk: the PEAK lamp's samples left */
     float dec[64];                                  /* the decimator's history (two copies of 32) */
     uint32_t dec_i;
+    /* the screen's scope: two signals, every scope_div-th sample at 88.2 kHz, in millivolts. scope_src[] (the main
+     * loop sets them): 0 = off, a jack's output (SRC_*), or MS_SCOPE_MIX / _HP / _LP, the filters' inputs and outputs.
+     * scope_trig (1 = VCO 1, 2 = VCO 2): where in the record that oscillator last began a cycle (scope_wrap[], the
+     * newest at scope_wn - 1) and its phase step (scope_inc: a cycle is 2^32 / scope_inc samples), so the screen can
+     * hold the picture still, as a scope's external trigger would */
+    int16_t scope[2][MS_SCOPE_N];
+    volatile uint32_t scope_w, scope_wn;
+    uint32_t scope_wrap[8], scope_inc;
+    uint16_t scope_div, scope_n;
+    uint8_t scope_src[2], scope_trig;
 } ms20_t;
 
 /* ---- arithmetic without libm */
@@ -122,11 +125,9 @@ static inline float ms_tan(float x)                 /* 0 <= x < 1.4: Pade (5, 4)
     return x * (945.f - 105.f * x2 + x2 * x2) / (945.f - 420.f * x2 + 15.f * x2 * x2);
 }
 
-/* ---- the pots.
- * "B" pots are linear. "A" pots (every time, every intensity, both VCO levels, VOLUME) are audio taper: the resistance
- * from the bottom to the wiper grows like an exponential with the rotation. How steep is not on the diagram: this is
- * the usual A curve, 15 % at the middle. (It puts EG2's DECAY at 1.6 at 0.17 s, which is what an MS-20 mini's notes
- * show once the VCA's threshold is taken into account.) */
+/* ---- Potentiometer tapers
+ * "B" pots are linear. "A" pots (times, modulation intensities, VCO levels, VOLUME) use a standard
+ * 15% midpoint audio taper (giving 0.17 s EG2 decay at 1.6, matching MS-20 mini measurements). */
 static inline float ms_taper(float v) { return (ms_exp2(v * 5.0048f) - 1.f) * (1.f / 31.11f); }
 /* an RC's step a sample: the pot's `r_max` ohms at 10, `r_min` in series, a capacitor of `c` farads */
 static inline float ms_rc(float v, float r_max, float r_min, float c) { return 1.f / (1.f + (ms_taper(v) * r_max + r_min) * c * MS_FS); }
@@ -247,9 +248,8 @@ static inline float ms_noise(uint32_t *s)           /* white, -1..1 */
     return (float)(int32_t)*s * (1.f / 2147483648.f);
 }
 
-/* VCO 1's triangle is its sawtooth through a full-wave rectifier whose two diodes (D2, D3) are in the signal's way,
- * not in the amplifier's loop: around the sawtooth's zero neither conducts, so one tip of the triangle is rounded
- * flat. |saw| volts (0 .. 3.84, 64 steps) -> what is left after the diode into 100 k. */
+/* VCO 1 triangle: full-wave rectified sawtooth with diodes D2/D3 in series, flattening one peak around 0 V.
+ * Table maps |saw| (0..3.84 V, 64 steps) to voltage after diode drop into 100 k. */
 static const float MS20_TRI[66] = {
     0.0000f, 0.0007f, 0.0031f, 0.0104f, 0.0273f, 0.0555f, 0.0924f, 0.1353f, 0.1819f, 0.2310f, 0.2820f, 0.3343f, 0.3876f,
     0.4417f, 0.4964f, 0.5516f, 0.6073f, 0.6633f, 0.7196f, 0.7762f, 0.8330f, 0.8900f, 0.9472f, 1.0045f, 1.0620f, 1.1196f,
@@ -278,18 +278,17 @@ static void ms20_init(ms20_t *s)
     for (i = 0; i < sizeof *s; i++)
         b[i] = 0;
     s->rng = 0x2F6E2B1u;
-    s->cv = 1.f;
+    s->cv = 0.f;                                    /* C6, the keyboard's hold capacitor, discharged: no key yet */
     s->mg_up = 1;
     s->fm_y = 1.f;
     s->hp_t = s->lp_t = 0.01f;
 }
 
-/* ---- the patch panel, as wiring. Each output is its voltage behind the resistance it leaves the board through; each
- * input is what its tip sees inside once a plug has opened the jack's switch. A cable joins two jacks; every set of
- * jacks joined together settles at one voltage, sum(V / R) / sum(1 / R) over everything on it. So a dummy plug leaves an
- * input at its own pull-up or pull-down, the momentary switch (a contact to ground) needs no special case, two inputs
- * or two outputs joined do what they would do, and an output loses a little to the input it drives. The service
- * manual's parts (docs/MS20-CIRCUIT.md). */
+/* ---- Patch panel network solver
+ * Each output is a Thevenin source behind its output resistor; each plugged input sees its internal bias
+ * voltage and impedance (normal broken). Connected jack groups resolve to sum(V / R) / sum(1 / R),
+ * handling dummy plugs, the momentary switch, output loading, and arbitrary jack pairs uniformly.
+ * Component values from the service manual (see docs/MS20-CIRCUIT.md). */
 static const float MS_ROUT[MS_NSRC] = {             /* ohms */
     [SRC_KBD_CV] = 100.f,                           /* R46 */
     [SRC_KBD_TRIG] = 880.f,                         /* R82 1.3 k, R81 2.7 k */
@@ -400,6 +399,20 @@ static void ms20_nets(ms20_nets_t *nt, const ms20_patch_t *pt, uint32_t btn)
 #define MS_TRIG(d, normal) (nets.plug[d] ? s->jv[d] < 2.2f : (normal))
 
 /* n mono samples at 44.1 kHz into out: SIGNAL OUT's volts / MS_VFS */
+/* What a VCO does with no control voltage. R203 220 k / R201 1 k off +15 V into R202 10 M (VCO 2: R205, R204, R206)
+ * put 6.79 nA into the integrator whatever the keyboard says. The adjustment procedure (7-2) trims each VCO at 8' with
+ * two screws: the high one sets the gain (VR1, VR6: the exponential pair's bias), the low one is the TL081's offset null
+ * (VR2, VR5), which puts the summing node at d = 6.79 nA / (1 / R8' + 1 / 10 M): the trickle cancels at 8' exactly. At
+ * the other footages it does not: in volts on the CV, R x 6.79 nA - d (1 + R / 10 M), R the SCALE resistance
+ * (800 k / 2^n; n8: the position that is 8'). VCO 1 at 32': +4.0 mV, its lowest C 7 cents sharp (the procedure allows
+ * 10 off 8'); with no key yet (0 V) it creeps at 0.13 Hz there and stands at 8'. */
+static inline float ms20_voff(uint32_t n, uint32_t n8)
+{
+    const float i0 = 15.f * 1e3f / 221e3f / 10e6f, r = 800e3f / (float)(1u << n), r8 = 800e3f / (float)(1u << n8);
+    const float d = i0 / (1.f / r8 + 1e-7f);
+    return r * i0 - d * (1.f + r * 1e-7f);
+}
+
 static void ms20_render(ms20_t *s, const ms20_patch_t *pt, const ms20_ctl_t *ctl, float *out, uint32_t n)
 {
     /* the half-band decimator: 23 taps (Kaiser 7), -0.3 dB at 16 kHz, -50 dB from 30 kHz (what folds below 14 kHz) */
@@ -407,7 +420,7 @@ static void ms20_render(ms20_t *s, const ms20_patch_t *pt, const ms20_ctl_t *ctl
     ms20_nets_t nets;
     float *sm = s->sm;
     float kbd, porta, r_e1a, r_e1r, r_e2a, r_e2d, r_e2r, e1_delay, e2_hold, sus, mg_su, mg_sd, be_hp, be_lp, pw_v, vol;
-    float c1, c2, e2f, hp_base, lp_base, a_fm_mg, a_fm_eg, a_hp_mg, a_hp_eg, a_lp_mg, a_lp_eg, lv1, lv2, rs1, rs2;
+    float c1, c2, e2f, hp_base, lp_base, a_fm_mg, a_fm_eg, a_hp_mg, a_hp_eg, a_lp_mg, a_lp_eg, lv1, lv2, rs1, rs2, sc = 0.f, sc2 = 0.f, voff1, voff2;
     float esp_g, esp_klo, esp_khi, esp_kfv, esp_thr, esp_adj, wheel_v = (float)ctl->wheel * (5.f / 127.f);
     uint32_t i, w1 = pt->p[P_V1WAVE] >> 5, w2 = pt->p[P_V2WAVE] >> 5, pw, esp_on, kgate = ctl->gate, btn = ctl->button;
     uint32_t ph1 = s->ph1, ph2 = s->ph2;
@@ -425,8 +438,6 @@ static void ms20_render(ms20_t *s, const ms20_patch_t *pt, const ms20_ctl_t *ctl
      * 1 V at the lowest C (C3 at 8'), 8 V at the highest (the specifications; the adjustment procedure halves it an
      * octave down). MIDI note 48 is that lowest C. */
     kbd = ms_exp2(((float)ctl->note * (1.f / 256.f) - 48.f) * (1.f / 12.f));
-    if (!s->ok)
-        s->cv = kbd;
     s->ok = 1;
     porta = ms_rc(sm[P_PORTA], 2e6f, 680.f, 0.22e-6f);   /* VR10 2 M A + R30 680 into C6 0.22 uF: up to 0.44 s */
 
@@ -474,6 +485,8 @@ static void ms20_render(ms20_t *s, const ms20_patch_t *pt, const ms20_ctl_t *ctl
     c1 = ms_exp2(22.6029f + ((float)(pt->p[P_V1SCALE] >> 5) - 2.f) + (sm[P_TUNE] - 0.5039f) * 0.3536f);
     c2 = ms_exp2(22.6029f + ((float)(pt->p[P_V2SCALE] >> 5) - 1.f) + (sm[P_TUNE] - 0.5039f) * 0.3536f
                + (sm[P_V2PITCH] - 0.5039f) * 2.230f);
+    voff1 = ms20_voff((pt->p[P_V1SCALE] >> 5) & 3u, 2u);
+    voff2 = ms20_voff((pt->p[P_V2SCALE] >> 5) & 3u, 1u);
     /* FM: 1 V on a knob at 10 is 1.1 * 100 / 5210 = 21.1 mV on the base: 1.178 octaves (17.92 mV an octave at 300 K) */
     a_fm_mg = ms_amount(sm[P_FM_MG], 1.f) * 1.178f;
     a_fm_eg = ms_amount(sm[P_FM_EG], 1.f) * 1.178f;
@@ -670,7 +683,8 @@ static void ms20_render(ms20_t *s, const ms20_patch_t *pt, const ms20_ctl_t *ctl
 
         /* The VCOs. TOTAL (wired to the MG's triangle) goes through a buffer with 10 k / 100 k in front of it (0.909)
          * to the three MG / T.EXT knobs; FREQ (wired to EG1) to EG1 / EXT. VCO 1 + 2 CV IN is wired to the keyboard,
-         * VCO 2 CV IN to VCO 1 + 2 CV IN: a plug there gives VCO 2 a voltage of its own. Below 0 V a VCO stops. */
+         * VCO 2 CV IN to VCO 1 + 2 CV IN: a plug there gives VCO 2 a voltage of its own. Below its offset (ms20_voff:
+         * about 0 V) a VCO stops. */
         v_tb = MS_IN(DST_TOTAL, s->mg) * 0.909f;
         v_freq = MS_IN(DST_FREQ, e1v);
         cv = MS_IN(DST_VCO_CV, s->cv);
@@ -678,12 +692,17 @@ static void ms20_render(ms20_t *s, const ms20_patch_t *pt, const ms20_ctl_t *ctl
         f = ms_clamp(v_tb * a_fm_mg + v_freq * a_fm_eg, -12.f, 6.f);
         if (f != s->fm_x) { s->fm_x = f; s->fm_y = ms_exp2(f); }     /* (with both FM knobs at 0 it never changes) */
         fm = s->fm_y;
-        f = cv * c1 * fm;
+        f = (cv + voff1) * c1 * fm;
         inc1 = (uint32_t)ms_clamp(f, 256.f, 2.0e9f);   /* (256: standing still, and the steps' corrections stay finite) */
-        f = cv2 * c2 * fm;
+        f = (cv2 + voff2) * c2 * fm;
         inc2 = (uint32_t)ms_clamp(f, 256.f, 2.0e9f);
         ph1 += inc1;
         ph2 += inc2;
+        if (s->scope_trig && (s->scope_trig == 1u ? ph1 < inc1 : ph2 < inc2)) {   /* the scope's trigger */
+            s->scope_wrap[s->scope_wn & 7u] = s->scope_w;
+            s->scope_wn++;
+            s->scope_inc = s->scope_trig == 1u ? inc1 : inc2;
+        }
         /* VCO 1. The sawtooth is 7.5 V peak to peak (the block diagram's check point 10). The pulse is a comparator
          * on it (+-13.5 V through R2 100 k / R1 6.8 k: +-0.86 V); it also feeds the ring modulator whatever WAVE FORM says */
         sq1 = ms_pulse(ph1, inc1, pw);
@@ -695,7 +714,6 @@ static void ms20_render(ms20_t *s, const ms20_patch_t *pt, const ms20_ctl_t *ctl
             k = (uint32_t)q;
             q -= (float)k;
             o1 = 1.364f - 0.909f * (MS20_TRI[k] + (MS20_TRI[k + 1u] - MS20_TRI[k]) * q);
-            if (ph1 < inc1) o1 += 0.08f;            /* (the rectifier cannot follow the sawtooth's fall: a nick at the sharp tip) */
         } else if (w1 == 1) {
             o1 = ms_saw(ph1, inc1) * 3.75f;
         } else if (w1 == 2) {
@@ -733,9 +751,20 @@ static void ms20_render(ms20_t *s, const ms20_patch_t *pt, const ms20_ctl_t *ctl
         y = ms20_k35(&s->hp, x * (47.f / 20047.f), s->hp_t, s->hp_t * (1.f / MS20_K35_R), be_hp, 1);
         s->hp_dc += (y - s->hp_dc) * 0.00019f;
         y -= s->hp_dc;
+        if (s->scope_src[0] == MS_SCOPE_HP) sc = y;
+        if (s->scope_src[1] == MS_SCOPE_HP) sc2 = y;
         y = ms20_k35(&s->lp, y * (47.f / 2247.f), s->lp_t, s->lp_t * (1.f / MS20_K35_R), be_lp, 0);
         s->lp_dc += (y - s->lp_dc) * 0.0001f;
         y -= s->lp_dc;
+        if (s->scope_src[0] && ++s->scope_n >= s->scope_div) {   /* the screen's scope */
+            uint32_t a = s->scope_src[0], b = s->scope_src[1], w = s->scope_w & (MS_SCOPE_N - 1u);
+            sc = a == MS_SCOPE_LP ? y : a == MS_SCOPE_MIX ? x : a < MS_NSRC ? s->sv[a] : sc;
+            sc2 = b == MS_SCOPE_LP ? y : b == MS_SCOPE_MIX ? x : b && b < MS_NSRC ? s->sv[b] : sc2;
+            s->scope[0][w] = (int16_t)ms_clamp(sc * 1000.f, -32000.f, 32000.f);
+            s->scope[1][w] = (int16_t)ms_clamp(sc2 * 1000.f, -32000.f, 32000.f);
+            s->scope_w++;
+            s->scope_n = 0;
+        }
 
         /* The VCA: R123 6.2 k / R121 220 put 3.4 % of the low-pass's output on Q19, a transistor with no collector
          * supply: its base current (EG2 through R125 100 k and R124 1 M, or INITIAL GAIN through D22 if that is more)

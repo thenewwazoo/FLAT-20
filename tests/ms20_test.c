@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* The engine (firmware/src/ms20.h) against what the MS-20's circuit does: pitch in Hz / V, the trigger inputs, the
- * filters' slopes and where they sing, the envelopes' voltages and times, the patch panel's quirks, and that nothing
- * blows up whatever the knobs and cables.
+/* Unit tests for firmware/src/ms20.h: Hz/V pitch, S-trig inputs, filter slopes and self-oscillation,
+ * envelope voltages/times, patch panel network behavior, and randomized stability checks.
  *   cc -O2 -Wall -Ifirmware/src -o build/host/ms20_test tests/ms20_test.c -lm && build/host/ms20_test */
 #include <math.h>
 #include <stdio.h>
@@ -92,16 +91,22 @@ static void test_pitch(void)
         run(&p, 0.8);
         CHECK(fabs(cents(pitch(buf + N(0.3), N(0.5)), hz[i])) < 1.5, "8', note %d: %.2f Hz, not %.2f", note[i], pitch(buf + N(0.3), N(0.5)), hz[i]);
     }
-    for (i = 0; i < 4; i++) {                      /* SCALE: an octave a step, 32' two below 8' */
+    for (i = 0; i < 4; i++) {                      /* SCALE: an octave a step, 32' two below 8'; tuned at 8' (the
+                                                      adjustment procedure, 7-2: +-2 cents there, +-10 at the others) */
         fresh(); ctl.note = 69 * 256; ctl.gate = 1; p.p[P_V1SCALE] = (uint8_t)W(i);
         run(&p, 0.8);
-        CHECK(fabs(cents(pitch(buf + N(0.3), N(0.5)), 110.0 * (1 << i))) < 1.5, "VCO 1 scale %d: %.2f Hz", i, pitch(buf + N(0.3), N(0.5)));
+        CHECK(fabs(cents(pitch(buf + N(0.3), N(0.5)), 110.0 * (1 << i))) < (i == 2 ? 1.5 : 10), "VCO 1 scale %d: %.2f Hz", i, pitch(buf + N(0.3), N(0.5)));
     }
+    fresh(); ctl.note = 48 * 256; ctl.gate = 1; p.p[P_V1SCALE] = W(0);   /* R202's trickle, not trimmed out at 32' */
+    run(&p, 0.8);
+    CHECK(cents(pitch(buf + N(0.3), N(0.5)), 32.7032) > 4 && cents(pitch(buf + N(0.3), N(0.5)), 32.7032) < 10,
+          "VCO 1 at 32', the lowest C a few cents sharp (R202 off 8'): %+.1f cents", cents(pitch(buf + N(0.3), N(0.5)), 32.7032));
+    p.p[P_V1SCALE] = W(2);
     p = init_patch(); p.p[P_MIX1] = 0; p.p[P_MIX2] = 127;
     for (i = 0; i < 4; i++) {                      /* VCO 2: 16' 8' 4' 2' */
         fresh(); ctl.note = 57 * 256; ctl.gate = 1; p.p[P_V2SCALE] = (uint8_t)W(i);
         run(&p, 0.8);
-        CHECK(fabs(cents(pitch(buf + N(0.3), N(0.5)), 110.0 * (1 << i))) < 1.5, "VCO 2 scale %d: %.2f Hz", i, pitch(buf + N(0.3), N(0.5)));
+        CHECK(fabs(cents(pitch(buf + N(0.3), N(0.5)), 110.0 * (1 << i))) < (i == 1 ? 1.5 : 10), "VCO 2 scale %d: %.2f Hz", i, pitch(buf + N(0.3), N(0.5)));
     }
     /* PITCH: +-1.115 octave (R55 75 k onto R47 100 at 18 mV an octave); MASTER TUNE: +-0.177 */
     fresh(); ctl.note = 57 * 256; ctl.gate = 1; p.p[P_V2SCALE] = W(1); p.p[P_V2PITCH] = 127;
@@ -111,6 +116,28 @@ static void test_pitch(void)
     fresh(); ctl.note = 69 * 256; ctl.gate = 1;
     run(&p, 0.8);
     CHECK(fabs(cents(pitch(buf + N(0.3), N(0.5)), 440.0) - 210.5) < 4, "MASTER TUNE at +5: %+.0f cents", cents(pitch(buf + N(0.3), N(0.5)), 440.0));
+}
+
+/* switched on, no key yet: the keyboard's hold capacitor C6 at 0 V, and the VCOs with only R202's trickle, trimmed out
+ * at 8' (7-2) but not at 32' */
+static double creep(ms20_patch_t *p)              /* VCO 1's cycles a second over 2 s with no key */
+{
+    uint32_t a;
+    fresh();
+    run(p, 0.1);
+    a = syn.ph1;
+    run(p, 2.0);
+    return (double)(uint32_t)(syn.ph1 - a) / 4294967296.0 / ((double)N(2.0) / MS_OUT_FS);
+}
+static void test_power_on(void)
+{
+    ms20_patch_t p = init_patch();
+    double hz = creep(&p);
+    CHECK(syn.sv[SRC_KBD_CV] == 0.f, "no key since switching on: KBD CV OUT %.3f V, not 0 (C6 discharged)", syn.sv[SRC_KBD_CV]);
+    CHECK(hz < 0.01, "and VCO 1 at 8' stands (%.4f Hz): the offset null cancels R202 there", hz);
+    p.p[P_V1SCALE] = W(0);
+    hz = creep(&p);
+    CHECK(hz > 0.11 && hz < 0.15, "at 32' it creeps on R202's 6.8 nA: %.3f Hz (0.13)", hz);
 }
 
 static void test_hz_per_volt(void)
@@ -312,6 +339,8 @@ static void test_vca(void)
     double a, b;
     fresh(); run(&p, 0.5);
     CHECK(rms(buf + N(0.2), N(0.3)) < 1e-4, "no key, no sound: %.5f V", rms(buf + N(0.2), N(0.3)));
+    ctl.gate = 1; run(&p, 0.05); ctl.gate = 0; run(&p, 1.0);   /* a key played and let go: C6 holds its pitch (before
+                                                                  any key the VCOs stand at 0 V: nothing to hear) */
     cable(&p, 0, SRC_WHEEL, DST_GAIN); ctl.wheel = 127; run(&p, 0.5); a = rms(buf + N(0.2), N(0.3));
     ctl.wheel = 0; ctl.gate = 1; run(&p, 0.5); b = rms(buf + N(0.2), N(0.3));
     CHECK(a > 0.1 && fabs(dB(a / b)) < 2.5, "INITIAL GAIN at 5 V against a held key: %+.1f dB", dB(a / b));
@@ -408,7 +437,7 @@ static void test_fuzz(void)                         /* any knobs, any cables, ke
 {
     ms20_patch_t p;
     uint32_t seed = 12345, r, i, k, bad = 0;
-    double worst = 0;
+    double worst = 0, worst_vca = 0;
     fresh();
     for (r = 0; r < 400; r++) {
         for (i = 0; i < MS_NPARAM; i++) { seed = seed * 1664525u + 1013904223u; p.p[i] = (uint8_t)(seed >> 25); }
@@ -418,13 +447,20 @@ static void test_fuzz(void)                         /* any knobs, any cables, ke
         }
         seed = seed * 1664525u + 1013904223u;
         ctl.note = (int32_t)((seed >> 8) % 96) * 256 + 12 * 256; ctl.gate = (seed >> 3) & 1; ctl.wheel = (int32_t)((seed >> 16) % 255) - 127; ctl.button = (seed >> 5) & 1;
-        render(&p, 4096);
+        for (k = 0; k < 4096; k += 32) {
+            double vin;
+            ms20_render(&syn, &p, &ctl, buf + k, 32);
+            vin = fabs((syn.lp.vb + K35_NVT * syn.lp.x - syn.lp_dc) * (220.0 / 6420.0));
+            if (vin > worst_vca) worst_vca = vin;
+        }
         for (k = 0; k < 4096; k++) {
+            buf[k] *= MS_VFS;
             if (!(buf[k] - buf[k] == 0)) bad++;
             if (fabs(buf[k]) > worst) worst = fabs(buf[k]);
         }
     }
     CHECK(!bad && worst <= 13.6, "400 random patches: %u samples not finite, the largest %.1f V", bad, worst);
+    CHECK(worst_vca < 0.04, "400 random patches: VCA transistor input stays within +-0.04 V (peak %.4f V)", worst_vca);
     p = init_patch(); ctl.note = 69 * 256; ctl.gate = 1; ctl.wheel = 0; ctl.button = 0;
     run(&p, 1.5);
     CHECK(fabs(cents(pitch(buf + N(1.0), N(0.5)), 440)) < 2, "and the plain sound after them: %.2f Hz", pitch(buf + N(1.0), N(0.5)));
@@ -477,6 +513,7 @@ static void test_wiring(void)
 int main(void)
 {
     test_pitch();
+    test_power_on();
     test_hz_per_volt();
     test_levels();
     test_filters();

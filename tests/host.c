@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* A fake FM-1 (or SMK-37) on a computer: the app (firmware/src/dinghy.c) runs unchanged on it. platform.c includes
+/* A fake FM-1 (or SMK-37) on a computer: the app (firmware/src/flat20.c) runs unchanged on it. platform.c includes
  * this file instead of the hardware when DINGHY_HOST is set. A script presses keys over time; out come
  * the screen (PPM, at the times SHOT asks) and the sound (WAV, as the FM-1 sends it over USB).
  *
  *   mkdir -p build/host
- *   cc -O2 -Wall -DDINGHY_HOST -Ifirmware/hal -Ifirmware/src -Ifirmware/gen -o build/host/dinghy firmware/src/dinghy.c
- *   build/host/dinghy build/host/dinghy        (-> build/host/dinghy.wav, build/host/dinghy-<ms>.ppm)
- *   build/host/dinghy OUT script.txt [FPS]    (your own script; with FPS: OUT-NNNNN.ppm, a frame every 1/FPS s:
+ *   cc -O2 -Wall -DDINGHY_HOST -Ifirmware/hal -Ifirmware/src -Ifirmware/gen -o build/host/flat20 firmware/src/flat20.c
+ *   build/host/flat20 build/host/flat20        (-> build/host/flat20.wav, build/host/flat20-<ms>.ppm)
+ *   build/host/flat20 OUT script.txt [FPS]    (your own script; with FPS: OUT-NNNNN.ppm, a frame every 1/FPS s:
  *                                             a film of your firmware, e.g. ffmpeg -r 30 -i OUT-%05d.ppm ...)
  *   tests/run_host.sh [script] does it all (BOARD=smk37: the SMK-37 build); DINGHY_PERF=1: instructions per sample
  *
@@ -23,7 +23,7 @@
 #endif
 
 #ifndef APP_NAME
-#define APP_NAME "DINGHY"
+#define APP_NAME "FLAT-20"
 #endif
 #ifndef APP_VER
 #define APP_VER "0.0"
@@ -169,7 +169,11 @@ static uint32_t host_nsx;
  * P hit at velocity V, V 0 = let go), "T fader F V" (0..127), "T wheel W RAW" (0 pitch, 1 mod; raw ADC 0..1023),
  * "T xkey K V" (keybed key K 0..36 at V, 0 = let go: the outer keys 0..4, 32..36); any build: "T shot" (the screen
  * at T -> OUT-T.ppm) */
-enum { HS_NONE, HS_VEL, HS_PAD, HS_FADER, HS_WHEEL, HS_XKEY, HS_SHOT, HS_SYSEX };
+enum { HS_NONE, HS_VEL, HS_PAD, HS_FADER, HS_WHEEL, HS_XKEY, HS_SHOT, HS_SYSEX, HS_BATT };
+/* any build: "T batt RAW USB" (the battery's ADC reading, 0..1023, and 1 if a USB host powers it) */
+static int32_t batt_raw = 600;
+static uint32_t host_usbpow;
+static int batt_ext(void) { return host_usbpow != 0u; }
 static const host_ev_t SCRIPT0[] = {
     {200, 1u << 7, -1, 0, 0, 0, -1, 0},                         /* C4 */
     {700, 1u << 7 | 1u << 11 | 1u << 14, -1, 0, 0, 0, -1, 0},   /* + E4 G4: a chord */
@@ -209,6 +213,7 @@ static void read_script(const char *path)
         else if (!strcmp(what, "wheel")) { sscanf(line, "%*u %*s %u %u", &a, &b); e.smk = HS_WHEEL; e.sa = (uint8_t)a; e.sb = (uint16_t)b; }
         else if (!strcmp(what, "xkey")) { sscanf(line, "%*u %*s %u %u", &a, &b); e.smk = HS_XKEY; e.sa = (uint8_t)a; e.sb = (uint16_t)b; }
         else if (!strcmp(what, "shot")) e.smk = HS_SHOT;
+        else if (!strcmp(what, "batt")) { sscanf(line, "%*u %*s %u %u", &a, &b); e.smk = HS_BATT; e.sb = (uint16_t)a; e.sa = (uint8_t)b; }
         else if (!strcmp(what, "sysex") && host_nsx < 256u) {   /* the bytes in hex, F0 first and F7 last */
             char *q = strstr(line, "sysex") + 5;
             unsigned b2, k = 0;
@@ -245,7 +250,7 @@ static void read_script(const char *path)
     script_n = n;
 }
 
-static const char *host_out = "build/host/dinghy";
+static const char *host_out = "build/host/flat20";
 static int16_t *wav;
 static uint32_t wav_n;
 
@@ -319,6 +324,9 @@ static void platform_poll(void)                 /* one call = one millisecond */
     while (step < script_n && script[step].t <= fm1_ms) {
         if (script[step].smk == HS_SHOT) {
             write_ppm(fm1_ms);
+        } else if (script[step].smk == HS_BATT) {
+            batt_raw = script[step].sb;
+            host_usbpow = script[step].sa;
         } else if (script[step].smk == HS_SYSEX) {
 #ifdef APP_SYSEX
             const uint8_t *b = host_sx[script[step].sx];

@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Where everything is on the panel, in the panel's own units (its top-left corner at 0, 0). Measured on photographs:
-// the knob section (VCO 1 to EG 2) on a frontal photograph of an original MS-20's (V(): its pixels, with the camera's
-// keystone undone), the patch panel on one of an MS-20 mini's, whose layout is the same (P()). The drawing itself is
-// this program's own; the instrument's makers' names and logo are not on it.
+// Panel coordinate layout in panel units (origin top-left).
+// Knob section measured from a perspective-corrected frontal photo of an original MS-20;
+// patch panel measured from an MS-20 mini photo (same layout). All graphics are procedural,
+// with no Korg trademarks or logos.
 import CoreGraphics
 import FlatLink
 
-/// a pixel of the patch panel's photograph -> panel units
+/// Convert patch panel photo pixels to panel units.
 @inline(__always) func P(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x - 5, y: (y - 40) * 1.07) }
-/// The knob section is a grid: each column's x and each row's y, in panel units. Measured on the original's photograph
-/// (1600 px wide; its vertical lines lean in toward its bottom by about 7 %, undone first: x' = 820 + (x - 820) / (1 - 0.00007 y),
-/// then units = 0.556 (x' - 3), 8 + 0.594 y), then snapped so that what is in line on the instrument is in line here.
+/// Knob grid coordinates in panel units, measured from a 1600px frontal photo after keystone correction
+/// (x' = 820 + (x - 820) / (1 - 0.00007 y); units = 0.556 (x' - 3), 8 + 0.594 y) and aligned to columns/rows.
 enum Col { static let vco1: CGFloat = 68.5, vco2: CGFloat = 190, mix: CGFloat = 302.5, hpf: CGFloat = 410.6, lpf: CGFloat = 519
            static let mg: CGFloat = 624.5, eg1: CGFloat = 731.7, eg2: CGFloat = 840, porta: CGFloat = 72 }
 enum Row { static let top: CGFloat = 107.5, selector: CGFloat = 111, second: CGFloat = 220, eg2Atk: CGFloat = 210, peak: CGFloat = 232.5
@@ -18,25 +17,25 @@ enum Row { static let top: CGFloat = 107.5, selector: CGFloat = 111, second: CGF
 @inline(__always) func U(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x, y: y) }
 
 public enum Geometry {
-    /// the MS-20's front panel
+    /// Main MS-20 front panel area.
     public static let panel = CGRect(x: 0, y: 0, width: 1545, height: 514)
-    /// below it: what the FM-1 has and an MS-20 has not
+    /// Bottom strip for FM-1-only controls and extra VCO jacks.
     public static let strip = CGRect(x: 0, y: 514, width: 1545, height: 62)
-    /// the keyboard and the left cheek with the wheel and the momentary switch
+    /// Keyboard and left cheek (mod wheel + momentary switch).
     public static let keys = CGRect(x: 0, y: 576, width: 1545, height: 224)
     public static let size = CGSize(width: 1545, height: 800)
     public static let cheek: CGFloat = 170
-    /// the MS-20's keyboard: 37 keys, C to C (the lowest C is MIDI note 48 in FLAT-20)
+    /// 37-key range (C3–C6; lowest C is MIDI note 48 in FLAT-20).
     public static let lowNote = 48, highNote = 84
 }
 
 public enum KnobSize: Sendable {
-    /// the filters' CUTOFF FREQUENCY and VOLUME
+    /// Filter CUTOFF FREQUENCY and VOLUME knobs.
     case big
-    /// the VCOs' four-way switches
+    /// Four-way VCO selector switches.
     case selector
     case standard
-    /// the skirt's diameter (the cap on it is about 0.7 of that)
+    /// Skirt diameter (cap diameter is ~0.7x).
     var diameter: CGFloat { switch self { case .big: 60; case .selector: 68; case .standard: 42 } }
     /// how far below the centre the knob's name is printed
     var labelDrop: CGFloat { switch self { case .big: 51; case .selector: 45; case .standard: 35.5 } }

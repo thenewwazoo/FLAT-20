@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The panel link's messages (firmware/src/ms20_link.h), decoded. No UI, no CoreMIDI: bytes in, values out.
+// Decoder/encoder for the FLAT-20 SysEx panel link protocol (firmware/src/ms20_link.h). Pure Swift, no UI or CoreMIDI.
 
-/// a jack on the patch panel
+/// A jack on the patch panel.
 public enum JackID: Hashable, Sendable {
     case output(Source)
     case input(Destination)
 
-    /// the firmware's number for it (ms20.h, MS_JACK_*): the outputs from 1, then the inputs
+    /// Firmware jack index (MS_JACK_* in ms20.h): outputs starting at 1, followed by inputs.
     public var number: Int {
         switch self {
         case .output(let s): return s.rawValue
@@ -21,23 +21,23 @@ public enum JackID: Hashable, Sendable {
     }
 }
 
-/// one patch cable: two jacks joined, of any kind; b nil = its other end leads nowhere (a dummy plug in a)
+/// A patch cable connecting two jacks (or a dummy plug when `b` is nil).
 public struct Cable: Equatable, Hashable, Sendable {
     public var a: JackID
     public var b: JackID?
     public init(_ a: JackID, _ b: JackID?) { self.a = a; self.b = b }
-    /// the usual cable: an output into an input
+    /// Standard output-to-input cable.
     public init(source: Source, destination: Destination) { self.init(.output(source), .input(destination)) }
     public func touches(_ j: JackID) -> Bool { a == j || b == j }
     public var ends: [JackID] { [a] + (b.map { [$0] } ?? []) }
-    /// a cable has no direction: the same two jacks joined is the same cable, whichever end is called which
+    /// Cables are undirected: (a, b) equals (b, a).
     public static func == (l: Cable, r: Cable) -> Bool { (l.a == r.a && l.b == r.b) || (l.b != nil && l.a == r.b && l.b == r.a) }
     public func hash(into h: inout Hasher) { h.combine(Set(ends)) }
 }
 
-/// everything the FM-1 is set to (a STATE message)
+/// Full FM-1 patch state (decoded from a STATE SysEx message).
 public struct PatchState: Equatable, Sendable {
-    /// 0...127 for every Param, in Param order
+    /// 0...127 per Param, in Param enum order.
     public var values: [UInt8]
     /// up to LinkFormat.cables slots; nil = the slot is empty
     public var cables: [Cable?]

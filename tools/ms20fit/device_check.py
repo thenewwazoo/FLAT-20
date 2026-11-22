@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# The FM-1 against the same firmware on this computer: every factory preset played over USB MIDI and recorded over USB
-# audio, beside build/host/dinghy playing the same notes. For each preset: the pitch of the strongest partial and the
-# third-octave spectrum of the held note (levels relative to the note's own total: the MASTER knob does not matter).
-#   device_check.py [OUT_DIR]        (build the host binary first: tests/run_host.sh)
+# Compare a USB-connected FM-1 against build/host/flat20 across all factory presets.
+# Records each preset over USB audio while triggering via USB MIDI, then compares dominant pitch
+# and normalized 1/3-octave spectra (independent of MASTER volume).
+#   device_check.py [OUT_DIR]   (requires build/host/flat20; run tests/run_host.sh first)
 import os, subprocess, sys, tempfile, wave
 import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.join(HERE, "..", "..")
 NAMES = ["INIT", "FLAT BEAT", "DA FUNK", "SCREAMER", "HP SQUEAL", "RING BELL", "S&H RANDOM", "DELAY VIB", "FEEDBACK", "AUTO TRIG",
-         "KICK", "WIND", "EG1 SWOOP", "WHEEL>VCO2", "F-V TRACK", "INIT 16"]
+         "KICK", "WIND", "EG1 SWOOP", "WHEEL>VCO2", "F-V TRACK", "INIT 16",
+         "FADE TO GRY", "LEATHERETTE", "FAD GADGET", "JARRE SWEEP", "DIDGERIDOO", "STEREOLAB", "SOUR TIMES", "VOODOO PPL", "SEXY BOY", "STRICT MCH"]
 STEP, NOTE = 3.0, 57
 # a held, steady note: what must agree. The others move while they sound (an envelope on the filter, the MG, noise):
 # they are listed, but two takes of them differ as much as these do
-STEADY = {"INIT", "DA FUNK", "SCREAMER", "RING BELL", "DELAY VIB", "WHEEL>VCO2", "F-V TRACK", "INIT 16"}
+STEADY = {"INIT", "DA FUNK", "SCREAMER", "RING BELL", "DELAY VIB", "WHEEL>VCO2", "F-V TRACK", "INIT 16",
+          "FADE TO GRY", "LEATHERETTE", "FAD GADGET", "STEREOLAB", "SOUR TIMES", "VOODOO PPL", "SEXY BOY", "STRICT MCH"}
 
 def load(p):
     w = wave.open(p); fs = w.getframerate(); ch = w.getnchannels()
@@ -45,7 +47,7 @@ def main():
             ev += ["%.3f:pc=%d" % (t / 1000, i), "%.3f:on=%d" % ((t + 500) / 1000, NOTE), "%.3f:off=%d" % ((t + 1900) / 1000, NOTE)]
         f.write("%d end\n" % (300 + int(16 * STEP * 1000)))
     host = os.path.join(out, "device_check_host")
-    subprocess.run([os.path.join(ROOT, "build/host/dinghy"), host, script], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run([os.path.join(ROOT, "build/host/flat20"), host, script], check=True, stdout=subprocess.DEVNULL)
     dev = os.path.join(out, "device_check_fm1.wav")
     subprocess.run([sys.executable, os.path.join(ROOT, "tools/fm1_play_rec.py"), dev, str(1.0 + 16 * STEP)] + ev, check=True)
     xh, fh = load(host + ".wav"); xd, fd = load(dev)

@@ -14,7 +14,7 @@
  *   storage             settings, NBLOB blobs of one sector, NSLOT slots of SLOT_SECT sectors, each with a CRC (store.h)
  *   crash screen        the PC of a fault, then a reboot
  *
- * The app (dinghy.c) includes this file first and supplies:
+ * The app (flat20.c) includes this file first and supplies:
  *   static void app_audio(int32_t *out, uint32_t n)   audio ISR: n stereo frames, L R L R, Q15 (+-32767), out is zero
  *   static void app_main(void)                        never returns; calls platform_poll() often (every few ms)
  * and may define, before the #include:
@@ -115,6 +115,10 @@ static volatile uint32_t fm1_ms;                /* milliseconds since power-on (
 #error "BOARD_SMK37: no UART MIDI IN (RX on PH8, a key-matrix row on the SMK)"
 #endif
 #include "usb.c"
+/* the battery: ADC channel 3 (a divider on PB1), smoothed, 0 = not read yet; and whether a USB host powers us (no
+ * charger status line is read). tests/host.c has its own: a script sets them. */
+static int32_t batt_raw;
+static int batt_ext(void) { return usb.config && !usb.suspended; }
 #if FELUCCA_UART
 #include "midi_uart.c"                          /* (sloopDX's, after Felucca Salt: the ring read by content; cable 1) */
 #endif
@@ -462,6 +466,13 @@ static void platform_poll(void)
         knob_avg += (a * 16 - knob_avg) / 8;
         k10 = (uint32_t)(knob_avg / 16);
         master_q12 = (int32_t)((k10 * k10) >> 8);
+    }
+    {
+        static uint32_t t_b;
+        if (fm1_ms - t_b >= 50u && (a = fm1_adc_read(FM1_ADC_BATT)) > 0) {   /* 20 a second, a slow average (1.6 s) */
+            t_b = fm1_ms;
+            batt_raw = batt_raw ? batt_raw + (a - batt_raw) / 32 : a;
+        }
     }
 }
 

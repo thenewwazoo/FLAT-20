@@ -4,7 +4,7 @@ decode STATE / LIVE, and check content, timing, rate limits and echo safety."""
 import os, re, shutil, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BIN = os.path.join(ROOT, "build/host/dinghy")
+BIN = os.path.join(ROOT, "build/host/flat20")
 TMP = tempfile.mkdtemp()
 fails = checks = 0
 
@@ -43,7 +43,7 @@ def jname(j):
     return "?%d" % j
 def cname(c): return (jname(c[0]), jname(c[1]))
 def plug_end(cab, c, end, e):
-    """model of plug_end() in dinghy.c: cab is a list of [a, b]; returns a new list"""
+    """model of plug_end() in flat20.c: cab is a list of [a, b]; returns a new list"""
     cab = [list(x) for x in cab]
     j = (cab[c][end] + e + 4 * NJACK) % NJACK
     if j and j == cab[c][end ^ 1]:
@@ -60,7 +60,7 @@ LIVE_LEN = 14
 def build():
     os.makedirs(os.path.dirname(BIN), exist_ok=True)
     subprocess.check_call(["cc", "-O2", "-Wall", "-Wno-unused-function", "-Wno-initializer-overrides", "-DDINGHY_HOST",
-        "-DAPP_VER=\"dev\"", "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-o", BIN, "firmware/src/dinghy.c"], cwd=ROOT)
+        "-DAPP_VER=\"dev\"", "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-o", BIN, "firmware/src/flat20.c"], cwd=ROOT)
 
 def run(name, lines, env=None):
     """run a script; returns (messages [(ms, bytes)], stdout, wav path)"""

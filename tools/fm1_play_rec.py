@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Play the FM-1 over USB MIDI and record its USB audio at the same time (for measuring the instrument itself).
-#   fm1_play_rec.py OUT.wav SECONDS [T:EVENT ...]     T in seconds; EVENT: pc=N  on=NOTE  off=NOTE  cc=NUM,VAL  bend=-8192..8191
-# PortAudio (sounddevice), not ffmpeg's avfoundation input, which drops chunks of the stream on a Mac.
+# Send MIDI events to a connected FM-1 while recording its USB audio output.
+#   fm1_play_rec.py OUT.wav SECONDS [T:EVENT ...]   (T in seconds; EVENT: pc=N, on=NOTE, off=NOTE, cc=NUM,VAL, bend=-8192..8191)
+# Uses PortAudio (sounddevice) instead of ffmpeg avfoundation, which drops frames on macOS.
 import sys, time, wave, threading
 import mido, sounddevice as sd
 

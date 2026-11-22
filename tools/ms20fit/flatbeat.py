@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
-# The "Flat Beat" notes of an MS-20 mini (GAK, KORG Sound Icons) against the engine with the panel as the video shows it:
-# the levels of harmonics 1, 3, 5, 7, 9, 13, 21 from 20 to 300 ms into the note. Nothing in the engine is fitted to this.
-#   flatbeat.py REF.wav [render args to override]      REF.wav: the video's sound (the notes at 97.28 s and 99.28 s)
+# Compare the engine against the GAK "KORG Sound Icons" MS-20 mini Flat Beat recording
+# (harmonics 1, 3, 5, 7, 9, 13, 21 from 20 to 300 ms). Used as a validation check, not a fit.
+#   flatbeat.py REF.wav [render args to override]   (REF.wav: video audio; notes at 97.28 s and 99.28 s)
 import numpy as np, wave, subprocess, os, sys, tempfile
 H = [1, 3, 5, 7, 9, 13, 21]; T = [20, 30, 40, 50, 70, 90, 120, 150, 200, 250, 300]
 def table(path, t0, t1, onset=None, f0=58.3):

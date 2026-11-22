@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The panel as a PNG, for checking the drawing without the app or the FM-1:
+// Offline PNG renderer for testing panel layout without the GUI app or an FM-1:
 //   panel-render OUT.png LOG [MS] [WIDTH]
-// LOG: what build/host/dinghy prints (its "SysEx out" lines); the panel is drawn as the FM-1 was at MS (default: the end).
+// Reads "SysEx out" lines from build/host/flat20 log output up to timestamp MS (default: end of log).
 import AppKit
 import SwiftUI
 import FlatLink

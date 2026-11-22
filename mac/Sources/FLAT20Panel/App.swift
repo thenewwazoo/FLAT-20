@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// FLAT-20 Panel: the FM-1's MS-20 as a panel, kept up to date over USB MIDI; and its patch cables, plugged with the mouse.
+// FLAT-20 Panel: macOS companion app displaying live FM-1 state over USB MIDI and supporting mouse patching.
 import AppKit
 import SwiftUI
 import FlatLink

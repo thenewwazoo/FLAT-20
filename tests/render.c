@@ -1,18 +1,18 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* The engine alone, as a WAV: for measuring it and for comparing it with recordings of an MS-20.
+/* Standalone CLI renderer for firmware/src/ms20.h (outputs 16-bit 44.1 kHz WAV).
  *   render OUT.wav SECONDS [setting ...] [@MS event ...]
- * A setting, or an event after an @MS (a time in ms; everything up to the next @MS happens then):
- *   NAME=X          a knob at X (0 .. 10, as on the panel) or a switch at its position (0 .. 3, or its name):
+ * Settings (and timed events after @MS):
+ *   NAME=X          Knob value (0..10) or switch position (0..3 or name):
  *                   v1wave (tri saw pulse noise) v1pw v1scale (32 16 8 4) porta v2wave (saw sqr pulse ring) v2pitch
  *                   v2scale (16 8 4 2) tune mix1 mix2 fmmg fmeg hpcut hppeak hpmg hpeg lpcut lppeak lpmg lpeg mgwave
  *                   mgrate e1delay e1atk e1rel e2hold e2atk e2dec e2sus e2rel volume espcv esplevel esplow esphigh espthr
- *                   (v2pitch, tune: 5 is the middle)
- *   JACK:JACK       a cable between any two jacks ("-" for one end: a dummy plug). Outputs: kbdcv kbdtrig mgtri mgrect
- *                   eg1 eg1rev eg2rev sh mvca white pink wheel button signal phones espamp espbpf espfv espenv esptrig
- *                   vco1 vco2; inputs: total freq vcocv vco2cv extin hpcut lpcut gain trig eg1trig shin shclock mvcain
- *                   mvcactl espin
- *   on=NOTE  off    a key (MIDI note, fractions allowed; 48 = the lowest C)     wheel=V  (-5 .. 5)    button=0/1
- * 16 bit, 44.1 kHz, +-5 V at SIGNAL OUT = full scale (tap=SRC: that output's volts instead, +-15 V = full scale). */
+ *                   (v2pitch and tune center at 5)
+ *   JACK:JACK       Patch cable between any two jacks ("-" for one end = dummy plug).
+ *                   Outputs: kbdcv kbdtrig mgtri mgrect eg1 eg1rev eg2rev sh mvca white pink wheel button signal
+ *                   phones espamp espbpf espfv espenv esptrig vco1 vco2
+ *                   Inputs:  total freq vcocv vco2cv extin hpcut lpcut gain trig eg1trig shin shclock mvcain mvcactl espin
+ *   on=NOTE  off    Gate control (MIDI note, fractional allowed; 48 = lowest C)   wheel=V (-5..5)   button=0/1
+ * Full scale = ±5 V at SIGNAL OUT (or pass tap=SRC to record a specific output at ±15 V full scale). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

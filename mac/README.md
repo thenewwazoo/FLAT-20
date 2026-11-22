@@ -1,58 +1,56 @@
-# FLAT-20 Panel
+# FLAT-20 Panel (macOS)
 
-A Mac window showing the FM-1's MS-20 as a panel: every knob where the FM-1 has it, the patch cables between their
-jacks, the patch panel's diagram, the key that sounds, the wheel, the momentary switch and the lamps. And you can patch
-it with the mouse:
+A macOS companion app that displays the FM-1's current FLAT-20 state as an interactive MS-20 front panel over USB MIDI. It shows all knob positions, patch cables, panel wiring diagrams, active key, mod wheel, momentary switch, and LEDs, and lets you patch cables with the mouse.
 
-- click a jack, then another: a cable between them. Any two jacks: an output and an input as usual, or two inputs, or
-  two outputs, which the FM-1 wires as the panel would be wired (docs/MS20-CIRCUIT.md, "The patch panel's wiring");
-- the first click on a jack that has a cable pulls that cable out, and the second click plugs the new one in;
-- the second click on a jack that has a cable pulls that one out first;
-- click a cable: it comes out at both ends;
-- Option-click a jack: a dummy plug, a cable to nothing, which breaks the jack's internal connection and leaves the
-  input at its own pull-up or pull-down (a dummy in TRIG IN: the keys stop triggering). Option-click a plugged jack:
-  its cable comes out;
-- the same jack twice, a click on the bare panel, or Esc: the loose cable is put down (one pulled by the first click
-  stays out). One plug a jack, as on the MS-20.
+## Patching with the mouse
 
-The cables are the only thing the app sends; the knobs stay the FM-1's. Patching needs FLAT-20 firmware that says it
-takes cables (0.2's later builds); with older firmware the panel only shows.
+- **Connect two jacks:** Click one jack, then click another. Any pair works—output to input, input to input, or output to output—and the FM-1 resolves the circuit exactly like a real patch panel (see `docs/MS20-CIRCUIT.md`, "Patch panel wiring").
+- **Move or replace a cable:** Clicking a jack that already has a cable unplugs it first. If it's your first click, you start a new cable from that jack; if it's your second click, the existing cable is removed and the new one plugs in.
+- **Remove a cable:** Click directly on a cable to unplug both ends.
+- **Dummy plug (break normalled connection):** Option-click an empty jack to insert a dummy plug (unconnected at the other end). This opens the jack's switching contact and leaves the input at its internal pull-up/pull-down (e.g., a dummy plug in `TRIG IN` disconnects the keyboard trigger). Option-clicking an occupied jack unplugs it.
+- **Cancel:** Click the same jack twice, click empty panel space, or press `Esc` to drop an in-progress cable (any cable already unplugged by the first click stays unplugged).
+
+Like the hardware MS-20, each jack holds at most one plug.
+
+The app only sends cable changes; knobs and switches are controlled exclusively on the FM-1. Sending cables requires a FLAT-20 0.2 build with cable-receive support; older firmware works in display-only mode.
+
+## Build and run
 
 ```sh
-mac/build.sh                         # -> mac/build/FLAT-20 Panel.app (signed for this Mac only)
+mac/build.sh                         # builds mac/build/FLAT-20 Panel.app (ad-hoc signed for local use)
 open "mac/build/FLAT-20 Panel.app"
 ```
 
-Plug the FM-1 in over USB (with FLAT-20 0.2 or later on it). The panel fills in within a second, and dims when nothing
-has been heard for 2.5 s. A keyboard on the FM-1's MIDI IN, or passed through the Mac, changes nothing: the FM-1
-reports what it is doing, whoever is playing it.
+Connect the FM-1 over USB (running FLAT-20 0.2 or later). The panel populates within a second and dims automatically if no state packets arrive for 2.5 seconds. External MIDI keyboards connected to the FM-1's TRS MIDI IN or routed through macOS work normally—the FM-1 always reports its own live state.
 
-## How it knows
+## Protocol
 
-The firmware sends its state as SysEx over USB MIDI (`firmware/src/ms20_link.h`): a STATE message (all 36 knobs and
-switches, the 8 cables, the preset, HOLD, the octave) when anything changes and once a second, and a LIVE message
-(the key, the wheel, the switch, the lamps) when that changes. The app listens to every MIDI source and takes what
-carries FLAT-20's header. Firmware built with other lists of knobs or jacks says so on screen instead of being drawn
-wrong. Patching sends a CABLES message with the whole patch panel to the destination beside the FM-1's source; the
-FM-1 checks it (every jack real, one cable an input), applies it as if patched on its own panel, and its next STATE
-shows it (5 ms, measured).
+The firmware broadcasts its state via USB MIDI SysEx (`firmware/src/ms20_link.h`):
 
-## Without an FM-1
+- **`STATE`:** All 36 knobs/switches, 8 patch cables, preset index, hold state, and octave. Sent on any change and as a 1 Hz heartbeat.
+- **`LIVE`:** Active key, mod wheel, momentary switch, and LEDs. Sent on change.
+- **`CABLES` (Mac → FM-1):** Sent when you edit cables in the app. Contains the full 8-cable patch table. The firmware validates every jack ID and ensures no input has duplicate cables, applies the patch, and reflects it in the next `STATE` message (~5 ms round-trip).
+
+The app listens on all CoreMIDI sources for packets matching the FLAT-20 SysEx header. If the firmware's parameter or jack layout doesn't match the app's version, the window displays a mismatch notice instead of rendering garbage.
+
+## Running without an FM-1
 
 ```sh
-python3 tools/fake_fm1.py            # the firmware runs on the Mac and sends through a virtual port: a tour of the presets
+# Run the host firmware build and stream SysEx over a virtual MIDI port (cycles through presets)
+python3 tools/fake_fm1.py
 python3 tools/fake_fm1.py --loop
-cd mac && swift run panel-render out.png LOG [MS]     # the panel as a PNG, from build/host/dinghy's output
-FLAT20_SNAPSHOT=/tmp/p "mac/build/FLAT-20 Panel.app/Contents/MacOS/FLAT-20 Panel"   # the running app saves itself every 2 s
-FLAT20_CLICKS="out:white in:shIn cable:0 din:trig" ...                                # clicks on jacks / cable slots (din:, dout: Option-clicks)
+
+# Render a panel PNG offline from build/host/flat20 log output
+cd mac && swift run panel-render out.png LOG [MS]
+
+# Save a screenshot of the running app every 2 seconds
+FLAT20_SNAPSHOT=/tmp/p "mac/build/FLAT-20 Panel.app/Contents/MacOS/FLAT-20 Panel"
+
+# Script mouse clicks on jacks/cables (prefix din:/dout: for Option-click)
+FLAT20_CLICKS="out:white in:shIn cable:0 din:trig" ...
 ```
 
-## Layout
+## Layout and codegen
 
-`Sources/FlatPanelUI/Layout.swift`: the knob section measured on a frontal photograph of an original MS-20 (its camera's keystone undone, which puts each VCO's knobs in one column, as on the instrument), the patch panel on one of an MS-20 mini's. The patch panel's arrows
-show the circuit's own connections (what an input carries with nothing plugged in, where it goes), checked against
-photographs of an original MS-20 and a full-size reissue. The drawing is this program's own, and the maker's name and
-logo are not on it. VCO 1 OUT and VCO 2 OUT, which an MS-20 does not have, sit in the strip below the panel.
-
-`Sources/FlatLink/Generated.swift` is written by `tools/gen_link_swift.py` from `ms20.h`; `tests/run_tests.sh` fails if
-it is out of date.
+- `Sources/FlatPanelUI/Layout.swift`: Knob coordinates were measured from a perspective-corrected frontal photo of an original MS-20; the patch panel layout was measured from an MS-20 mini. Normalled signal-flow arrows were verified against photos of an original MS-20 and a full-size reissue. All graphics are drawn procedurally with no Korg trademarks or logos. `VCO 1 OUT` and `VCO 2 OUT` (which don't exist on the hardware) appear in the bottom strip.
+- `Sources/FlatLink/Generated.swift`: Auto-generated from `firmware/src/ms20.h` by `tools/gen_link_swift.py`. `tests/run_tests.sh` verifies that it stays in sync.

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The panel, drawn: a still layer (the panel, its lines and lettering, the knobs' scales and caps, the jacks, the
-// keyboard) drawn once for a size, and a moving layer over it (pointers, lamps, cables, the key down, the wheel).
+// Two-layer SwiftUI Canvas renderer: a cached static layer (panel, labels, knob scales/caps, jacks, keyboard)
+// and a dynamic overlay (pointers, LEDs, patch cables, pressed keys, mod wheel).
 import SwiftUI
 import FlatLink
 #if canImport(AppKit)
@@ -49,7 +49,7 @@ public struct PanelView: View {
         .background(Palette.room)
     }
 
-    /// a point in the view -> panel units (the inverse of fit)
+    /// Convert view coordinates to panel units (inverse of `fit`).
     func toPanel(_ p: CGPoint, _ size: CGSize) -> CGPoint {
         let s = min(size.width / Geometry.size.width, size.height / Geometry.size.height)
         let ox = (size.width - Geometry.size.width * s) / 2, oy = (size.height - Geometry.size.height * s) / 2

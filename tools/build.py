@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Build Dinghy (on Felucca / SLOOP's platform): the app, the update loader and an installable .fwsc package.
+"""Build FLAT-20 (on Dinghy's platform, after Felucca / SLOOP): the app, the update loader and an installable .fwsc package.
 
-  tools/build.py [--release X.Y[-suffix]] [--board fm1|smk37] [--model pro|elite|mke]
+  tools/build.py [--release X.Y[-suffix]]
 
-Outputs in build/: dinghy.bin (app), loader/ota.bin (update loader),
-dinghy.fwsc (package). See README.md for the toolchain and the SDK.
-
---board smk37 (or BOARD=smk37) builds for the M-Vave SMK-37 (docs/SMK37.md): -DBOARD_SMK37=1 for the app and the
-loader, identity SMK-37 Pro_990 (release X.Y: SMK-37 Pro_99Y), the SMK flash layout (fm1pkg_make.py, app slot
-0x97400), the package build/dinghy-smk37.fwsc. --model elite / mke (or MODEL=) with smk37: the same build under the
-SMK-37 Elite's or the MKE-P37's model name (identity, loader and update record; -DSMK_MODEL), so M-Vave's updater
-still takes that unit's factory package: dinghy-smk37-elite.fwsc, -mke.fwsc. The default stays the FM-1.
+Outputs in build/: flat20.bin (app), loader/ota.bin (update loader),
+flat20.fwsc (package). See docs/BUILDING.md for the toolchain and the SDK.
 
 The JieLi toolchain is Linux x86-64 only. JIELI_TOOLCHAIN points at it; on
 macOS (or with JIELI_DOCKER=1) each tool runs in a linux/amd64 container.
@@ -54,14 +48,10 @@ SDK_SHA256 = {
     "cfg/eq_cfg_hw.bin": "41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d",
 }
 
-BOARD = "fm1"                       # fm1 (default) or smk37: BOARD env or --board
-BOARD_PREFIX = {"fm1": "FM-1_95", "smk37": "SMK-37 Pro_99"}   # identity: prefix + minor (0: a dev build)
-BOARD_DEFS = {"fm1": [], "smk37": ["-DBOARD_SMK37=1"]}
-MODELS = {"pro": "SMK-37 Pro", "elite": "SMK-37 Elite", "mke": "MKE-P37"}   # smk37: one keyboard, three names
-DATA_FAMILY = "FLAT20"              # the SMK store's owner tag (store.h): 1..7 of A-Z 0-9. Your fork: your own
-SCREEN_NAME = "FLAT-20"              # the update loader's screen (FM-1, ldr_screen.c): the name and its colour (RGB565)
-SCREEN_COLOUR = 0xB47F              # lilac, #B48CFF
-PRODUCT = "FM-1_952"                # Dinghy: 99N (OUR_LOADER in the installer wants FM-1_9NN). Your fork: pick your own
+ID_PREFIX = "FM-1_95"               # the package identity: this + the minor version (0: a dev build); FLAT-20 has 95N
+SCREEN_NAME = "FLAT-20"              # the update loader's screen (ldr_screen.c): the name and its colour (RGB565)
+SCREEN_COLOUR = 0xE4E0              # FLAT-20's orange, #E69F00 (the screen's OUT trace)
+PRODUCT = ID_PREFIX + "0"
 VERSION = None                      # APP_VER for release builds
 
 
@@ -136,7 +126,7 @@ def ldr_wrap(image):
 def build_loader():
     LDR.mkdir(parents=True, exist_ok=True)
     src = FW / "loader"
-    flags = [*CFLAGS, *BOARD_DEFS[BOARD], "-Ifirmware/hal", "-Ifirmware/src", f'-DLDR_NAME="{SCREEN_NAME}"',
+    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", f'-DLDR_NAME="{SCREEN_NAME}"',
              f"-DLDR_COLOUR={SCREEN_COLOUR:#x}u"]
     tc_all(("cc", "-c", src / "crt0_ldr.S", "-o", LDR / "crt0_ldr.o"),
            ("cc", *flags, "-c", src / "loader.c", "-o", LDR / "loader.o"))
@@ -166,28 +156,18 @@ def build_loader():
 # ---- app
 
 def build_app():
-    flags = [*CFLAGS, *BOARD_DEFS[BOARD], "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", f'-DFELUCCA_ID="{PRODUCT}"',
+    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", f'-DFELUCCA_ID="{PRODUCT}"',
              f'-DAPP_VER="{VERSION or "0.0"}"']
-    if BOARD == "smk37":
-        if not re.fullmatch(r"[A-Z0-9]{1,7}", DATA_FAMILY):
-            raise SystemExit("DATA_FAMILY: 1..7 of A-Z 0-9")
-        flags.append(f'-DDATA_FAMILY="{DATA_FAMILY}"')
-    flags += os.environ.get("DINGHY_DEFS", "").split()   # (a test build: DINGHY_DEFS=-DFELUCCA_UAC=0 ./build.sh)
+    flags += os.environ.get("FLAT20_DEFS", "").split()   # (a test build: FLAT20_DEFS=-DFELUCCA_UAC=0 ./build.sh)
     cmds = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
             ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
             ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
-            ("cc", *os.environ.get("FLAT20_CPU", "-mcpu=r3 -mfprev1 -ffp-contract=off").split(), *flags, "-c", FW / "src" / "dinghy.c", "-o", OUT / "dinghy.o")]
+            ("cc", *os.environ.get("FLAT20_CPU", "-mcpu=r3 -mfprev1 -ffp-contract=off").split(), *flags, "-c", FW / "src" / "flat20.c", "-o", OUT / "flat20.o")]
     tc_all(*cmds)
-    elf = OUT / "dinghy.elf"
+    elf = OUT / "flat20.elf"
     ld = FW / "app.ld"
-    if APP_SLOT != 0x8DFBC:          # another board's app slot (SMK-37): the same script, its XIP length
-        txt = ld.read_text()
-        if txt.count("LENGTH = 0x8DFBC") != 1:
-            raise SystemExit("app.ld: the XIP LENGTH line was not found")
-        ld = OUT / "app.ld"
-        ld.write_text(txt.replace("LENGTH = 0x8DFBC", f"LENGTH = {APP_SLOT:#X}".replace("0X", "0x")))
     tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", ld, OUT / "crt0.o", OUT / "fm1_vec.o",
-       OUT / "fm1_isr.o", OUT / "dinghy.o", "-o", elf)
+       OUT / "fm1_isr.o", OUT / "flat20.o", "-o", elf)
     for sect in ("text.bin", "data.bin", "ramtext.bin"):
         (OUT / sect).unlink(missing_ok=True)
     *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
@@ -196,7 +176,7 @@ def build_app():
                                ("common/bin/objdump", "-t", elf),
                                ("common/bin/objdump", "-d", elf),
                                ("common/bin/objdump", "-d", "-j", ".ram_text", elf))
-    (OUT / "dinghy.dis").write_text(dis)
+    (OUT / "flat20.dis").write_text(dis)
 
     def symv(name):
         return int(re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M).group(1), 16)
@@ -213,7 +193,7 @@ def build_app():
             img += b"\xff" * (load - APP_XIP - len(img))
             img += blob
     img += b"\xff" * (-len(img) % 4)
-    (OUT / "dinghy.bin").write_bytes(img)
+    (OUT / "flat20.bin").write_bytes(img)
     return bytes(img), syms, dis, rt
 
 
@@ -296,37 +276,21 @@ def mmio_check():
 
 
 def main():
-    global PRODUCT, VERSION, BOARD, APP_SLOT
+    global PRODUCT, VERSION
     ap = argparse.ArgumentParser()
-    ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_99Y, version string X.Y")
-    ap.add_argument("--board", choices=sorted(BOARD_PREFIX), default=None,
-                    help="target board: fm1 (default) or smk37 (default: $BOARD, else fm1)")
-    ap.add_argument("--model", choices=sorted(MODELS), default=None,
-                    help="smk37: the model name, pro (default), elite or mke (default: $MODEL, else pro)")
+    ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_95Y, version string X.Y")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
-    BOARD = (a.board or os.environ.get("BOARD") or "fm1").lower().replace("-", "")
-    if BOARD not in BOARD_PREFIX:
-        raise SystemExit(f"BOARD={BOARD}: use fm1 or smk37")
-    model = (a.model or os.environ.get("MODEL") or "pro").lower()
-    if model not in MODELS or (model != "pro" and BOARD != "smk37"):
-        raise SystemExit(f"MODEL={model}: pro, elite or mke, with BOARD=smk37")
-    fm1pkg_make.set_board(BOARD)
-    APP_SLOT = fm1pkg_make.APP_SLOT
-    suffix = "" if BOARD == "fm1" else "-" + BOARD
-    if model != "pro":              # another model name: identity, loader and update record (fm1_cc.h SMK_MODEL)
-        BOARD_DEFS[BOARD] = [*BOARD_DEFS[BOARD], f'-DSMK_MODEL="{MODELS[model]}"']
-        BOARD_PREFIX[BOARD] = BOARD_PREFIX[BOARD].replace(MODELS["pro"], MODELS[model])
-        suffix += "-" + model
-    PRODUCT = BOARD_PREFIX[BOARD] + "0"
-    name = f"dinghy{suffix}.fwsc"
+    if os.environ.get("BOARD", "fm1").lower().replace("-", "") != "fm1":
+        raise SystemExit("FLAT-20 is for the FM-1 only (the platform's SMK-37 port is not supported)")
+    name = "flat20.fwsc"
     if a.release:                   # one digit each: the identity has room for two (X.Y; a .Z only in the text)
         m = re.fullmatch(r"(\d)\.(\d)(\.\d)?(-[A-Za-z0-9]+)?", a.release)
         if not m:
             raise SystemExit(f"--release {a.release}: use X.Y, X.Y.Z or X.Y-suffix, one digit each")
-        PRODUCT = BOARD_PREFIX[BOARD] + m[2]
+        PRODUCT = ID_PREFIX + m[2]
         VERSION = m[1] + "." + m[2] + (m[3] or "")
-        name = f"dinghy-{a.release}{suffix}.fwsc"
+        name = f"flat20-{a.release}.fwsc"
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK
         if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:
@@ -347,9 +311,9 @@ def main():
         raise SystemExit("build: checks failed")
     pkg = fm1pkg_make.ufw(fm1pkg_make.flash_image(img, fm1pkg_make.KEY), ota, PRODUCT)
     (OUT / name).write_bytes(pkg)
-    print(f"app      {OUT / 'dinghy.bin'}  {len(img)} B")
+    print(f"app      {OUT / 'flat20.bin'}  {len(img)} B")
     print(f"loader   {LDR / 'ota.bin'}  {len(ota)} B")
-    print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}" + (f", board {BOARD}" if BOARD != "fm1" else ""))
+    print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}")
     return 0
 
 

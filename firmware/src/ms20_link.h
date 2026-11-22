@@ -1,34 +1,30 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* FLAT-20's panel link: what the FM-1 tells a computer about itself over USB MIDI as SysEx, so a panel on the computer
- * (mac/) can show the patch; and the one thing the computer may send back, the cables. The FM-1 never waits for anyone:
- * it sends when something changes and once a second regardless, and a listener that starts late has everything within
- * a second.
+/* FLAT-20 SysEx panel link protocol (USB MIDI).
+ * The FM-1 broadcasts its state to the macOS companion app (mac/) on change and at 1 Hz,
+ * and accepts incoming CABLES messages to update the patch panel.
  *
- *   F0 7D 46 32 30 VER TYPE ... F7          (7D: the non-commercial ID; "F20"; VER: LINK_VERSION)
+ *   F0 7D 46 32 30 VER TYPE ... F7          (7D: non-commercial SysEx ID; "F20"; VER: LINK_VERSION)
  *
  *   TYPE 1, STATE   NPARAM NSRC NDST  p[NPARAM]  (jack jack) x NCABLE  preset flags octave+3  name[12]
- *                   a jack: 0 = nothing, 1 .. NSRC-1 the outputs (SRC_*), then the inputs (NSRC-1 + DST_*); a cable with
- *                   one end 0 is a dummy plug, both 0 no cable
- *                   flags: 1 = PLAY holds the key, 2 = edited since the preset was loaded or saved, 4 = this firmware
-                 takes CABLES (a panel offers patching only then)
+ *                   jack IDs: 0 = unconnected, 1..NSRC-1 = outputs (SRC_*), NSRC..NJACK-1 = inputs (NSRC-1 + DST_*).
+ *                   One zero end = dummy plug; both zero = empty slot.
+ *                   flags: bit 0 = HOLD active, bit 1 = patch modified, bit 2 = firmware accepts CABLES.
  *   TYPE 2, LIVE    gate note wheel_hi wheel_lo button lamps
- *                   gate: a key sounds (or PLAY holds it); note: 0..127, the key that counts (127 with gate 0 and
- *                   none played yet is "none"); wheel: (wheel + 127) as 14 bits, -127..127 = -5..+5 V; button: the
- *                   momentary switch; lamps: 1 = the MG's lamp, 2 = the trigger lamp (EG2's trigger),
- *                   4 = the ESP's TRIG lamp, 8 = the ESP's PEAK lamp
- *   TYPE 3, CABLES  (computer -> FM-1) NSRC NDST  (jack jack) x NCABLE: the whole patch panel, as the FM-1 should have
- *                   it. Taken only if every jack exists, no jack has two plugs and no cable has both ends in one jack;
- *                   the FM-1 then answers with a STATE
+ *                   gate: key active (or held); note: 0..127 active note (127 with gate=0 means none);
+ *                   wheel: (wheel + 127) as 14-bit value (-127..127 = -5..+5 V);
+ *                   button: momentary switch; lamps: bit 0 = MG, bit 1 = EG2 trig, bit 2 = ESP trig, bit 3 = ESP peak.
+ *   TYPE 3, CABLES  (host -> FM-1) NSRC NDST  (jack jack) x NCABLE
+ *                   Full patch panel state. Accepted only if all jack IDs are valid, no jack is used twice,
+ *                   and no cable connects a jack to itself. Firmware responds with a STATE message.
  *
- * Every byte after F0 is 7-bit already (knobs are 0..127, the name is ASCII). NPARAM / NSRC / NDST let a listener
- * built against another ms20.h see that it is out of date instead of drawing the wrong knobs. Bump LINK_VERSION
- * when the layout of a message changes. */
+ * All payload bytes are 7-bit clean (knobs 0..127, ASCII name). NPARAM/NSRC/NDST let the host
+ * detect schema mismatches. Bump LINK_VERSION on wire format changes. */
 #ifndef MS20_LINK_H
 #define MS20_LINK_H
 #include <stdint.h>
 #include "ms20.h"
 
-#define LINK_VERSION 2u                             /* 2: a cable joins any two jacks (ms20.h's MS_JACK_*) */
+#define LINK_VERSION 2u                             /* v2: cables connect any two jacks (MS_JACK_*) */
 #define LINK_STATE 1u
 #define LINK_LIVE 2u
 #define LINK_CABLES 3u
@@ -37,9 +33,9 @@
 #define LINK_STATE_LEN (7u + 3u + MS_NPARAM + 2u * MS_NCABLE + 3u + 12u + 1u)
 #define LINK_LIVE_LEN (7u + 6u + 1u)
 #define LINK_MAX LINK_STATE_LEN
-/* An echo of these messages back into the FM-1 (a computer that sends every input to every output) reaches the
- * update code's frame decoder (ota.c), which wants the first decoded byte to be 0: the 7-bit unpacking makes that
- * byte's low 7 bits our first byte's, 0x7D. Never 0, so never taken for an update frame. */
+/* If a host echoes SysEx back to the FM-1, it hits ota.c's frame decoder, which expects
+ * the first 7-bit-unpacked byte to be 0. Keeping LINK_ID's low 7 bits nonzero (0x7D) prevents
+ * echoed link packets from being misinterpreted as OTA frames. */
 #define LINK_ID 0x7Du
 _Static_assert((LINK_ID & 0x7Fu) != 0u, "the first byte must not decode as an update frame");
 _Static_assert(MS_NPARAM < 128u && MS_NJACK < 128u && MS_NSRC < 128u && MS_NDST < 128u, "counts are sent as 7-bit bytes");
@@ -59,7 +55,7 @@ static uint32_t link_head(uint8_t *o, uint32_t type)
     return 7u;
 }
 
-/* the STATE message into o (LINK_STATE_LEN bytes); returns its length */
+/* Encode STATE message into o (LINK_STATE_LEN bytes); returns byte count. */
 static uint32_t link_state(uint8_t *o, const ms20_patch_t *p, const link_meta_t *m)
 {
     uint32_t n = link_head(o, LINK_STATE), i;
@@ -80,7 +76,7 @@ static uint32_t link_state(uint8_t *o, const ms20_patch_t *p, const link_meta_t 
         uint8_t c = i < sizeof p->name ? (uint8_t)p->name[i] : 0u;
         o[n++] = c < 0x20u || c > 0x7Eu ? 0u : c;
     }
-    for (i = 0; i < 12u; i++)                        /* (a name ends at its first 0: nothing after it) */
+    for (i = 0; i < 12u; i++)                        /* zero-pad after first NUL */
         if (!o[n - 12u + i]) {
             for (; i < 12u; i++)
                 o[n - 12u + i] = 0;
@@ -90,7 +86,7 @@ static uint32_t link_state(uint8_t *o, const ms20_patch_t *p, const link_meta_t 
     return n;
 }
 
-/* a CABLES message (the bytes between F0 and F7) into c; 0 if it is one and it is sound, else -1 (c untouched) */
+/* Validate and decode a CABLES payload (excluding F0/F7) into c. Returns 0 on success, -1 on error (c unchanged). */
 static int link_cables_take(const uint8_t *p, uint32_t n, uint8_t c[MS_NCABLE][2])
 {
     uint8_t t[MS_NCABLE][2], used[MS_NJACK];
@@ -103,9 +99,9 @@ static int link_cables_take(const uint8_t *p, uint32_t n, uint8_t c[MS_NCABLE][2
     for (i = 0; i < MS_NCABLE; i++) {
         uint8_t a = p[8u + 2u * i], b = p[9u + 2u * i];
         if (a >= MS_NJACK || b >= MS_NJACK || (a && a == b))
-            return -1;                               /* a jack that does not exist, or both ends in one jack */
+            return -1;                               /* invalid jack ID or self-loop */
         if ((a && used[a]++) || (b && used[b]++))
-            return -1;                               /* two plugs in one jack */
+            return -1;                               /* duplicate plug in same jack */
         t[i][0] = a;
         t[i][1] = b;
     }
@@ -116,7 +112,7 @@ static int link_cables_take(const uint8_t *p, uint32_t n, uint8_t c[MS_NCABLE][2
     return 0;
 }
 
-/* the LIVE message into o (LINK_LIVE_LEN bytes); returns its length */
+/* Encode LIVE message into o (LINK_LIVE_LEN bytes); returns byte count. */
 static uint32_t link_live(uint8_t *o, const link_live_t *l)
 {
     uint32_t n = link_head(o, LINK_LIVE), w = (uint32_t)(l->wheel < -127 ? 0 : l->wheel > 127 ? 254 : l->wheel + 127);
