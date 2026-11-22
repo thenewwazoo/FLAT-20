@@ -10,7 +10,9 @@ A component-level Korg MS-20 synthesizer firmware for the M-VAVE FM-1, built on 
 
 ## Overview
 
-The synth engine (`firmware/src/ms20.h`) models the original MS-20 board set (KLM-127 with dual KORG35 filters, KLM-128, and KLM-129) directly from the Korg service manual schematics. Every sound-shaping resistor and capacitor is referenced by its part designator in the code and documented in [docs/MS20-CIRCUIT.md](docs/MS20-CIRCUIT.md). The few values that cannot be read off a schematic (internal KORG35 transistor ratio, audio-taper pot curve, etc.) are taken from hardware recordings or standard component specs and marked accordingly.
+FLAT-20 is a circuit-level model of a real analog synthesizer. Its engine (`firmware/src/ms20.h`) is not a sound-alike built by ear: each block is built from the schematic's own parts, and the ones that make the MS-20 sound like itself are solved as circuits, sample by sample. The KORG35 filters run on their diode and transistor equations, solved by Newton's method; the VCA is its one transistor's equation; the envelopes and the MG are their resistor-capacitor networks; the patch panel is solved as electrical nets of source and input resistances, so any two jacks can be joined. The simplest blocks are idealised: the VCO cores are exact ramps driven by the circuit's currents. A companion macOS app shows the whole front panel live and patches it with the mouse.
+
+The engine models the original MS-20 board set (KLM-127 with dual KORG35 filters, KLM-128, and KLM-129) directly from the Korg service manual schematics. Every sound-shaping resistor and capacitor is referenced by its part designator in the code and documented in [docs/MS20-CIRCUIT.md](docs/MS20-CIRCUIT.md). The few values that cannot be read off a schematic (internal KORG35 transistor ratio, audio-taper pot curve, etc.) are taken from hardware recordings or standard component specs and marked accordingly.
 
 Key MS-20 behaviors that are faithfully modeled:
 
@@ -125,6 +127,8 @@ Along the bottom: the MS-20's lamps (MG, TRIG, ESP, PEAK) with HOLD and EDIT, th
 These are patches in the spirit of each record, built from what is known of how the MS-20 was used on it; they are not samples and make no claim to be the exact settings.
 
 ## macOS companion app
+
+<p align="center"><img src="docs/mac-app.png" alt="FLAT-20 Panel: the whole front panel of the FM-1's patch, with three cables (MG to the S&amp;H clock, white noise into the S&amp;H, the S&amp;H into TOTAL), a key held on the keyboard and the lamps lit"></p>
 
 `mac/` contains a native macOS app that displays the FM-1's live state as a full MS-20 front panel over USB MIDI, including knobs, patch cables, LEDs, and active keys, and lets you patch cables with the mouse. See [mac/README.md](mac/README.md).
 

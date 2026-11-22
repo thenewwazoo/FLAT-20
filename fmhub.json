@@ -1,5 +1,5 @@
 {
-  "what": "An MS-20 for the FM-1, modelled part by part from Korg's service manual: two VCOs, the KORG35 high- and low-pass filters, two envelopes, the MG, the ESP and an eight-cable patch panel. Each page shows its knobs and a live scope of the sound.",
+  "what": "A circuit-level model of the Korg MS-20, built from its service manual's part values: KORG35 filters solved sample by sample, the transistor VCA, RC envelopes and a patch panel wired as real circuits. A companion macOS app shows the whole front panel live and patches cables by mouse.",
   "author": "Brandon Matthews",
   "kinds": [
     "synth"

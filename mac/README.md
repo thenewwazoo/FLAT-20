@@ -1,5 +1,7 @@
 # FLAT-20 Panel (macOS)
 
+<p align="center"><img src="../docs/mac-app.png" alt="FLAT-20 Panel: the front panel with three patch cables, a key held and the lamps lit"></p>
+
 A macOS companion app that displays the FM-1's current FLAT-20 state as an interactive MS-20 front panel over USB MIDI. It shows all knob positions, patch cables, panel wiring diagrams, active key, mod wheel, momentary switch, and LEDs, and lets you patch cables with the mouse.
 
 ## Patching with the mouse
